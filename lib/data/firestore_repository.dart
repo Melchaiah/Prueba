@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../logic/finance.dart';
+import 'fx_service.dart';
 import '../models/models.dart';
 import 'repository.dart';
 
@@ -14,12 +15,13 @@ import 'repository.dart';
 ///   users/{uid}                         {name, householdId, households: {hid: nombre}, prefs}
 ///   invites/{codigo}                    {householdId, householdName, createdBy}
 ///   households/{hid}                    {name, memberIds, members: {uid: {name, privacy}},
-///                                        currencies, wipe, plan}
+///                                        currencies, wipe, plan, categories, fx}
 ///   households/{hid}/expenses/{id}      Expense + {public}
 ///   households/{hid}/recurring/{id}     RecurringExpense + {public}
 ///   households/{hid}/incomes/{id}
 ///   households/{hid}/settlements/{id}
 ///   households/{hid}/budgets/{id}
+///   households/{hid}/goals/{id}
 ///
 /// La privacidad se aplica en el servidor (ver firestore.rules): un gasto con
 /// `public == false` solo lo puede leer quien lo pagó.
@@ -148,6 +150,8 @@ class FirestoreRepository implements Repository {
       inviteCode: d['inviteCode'] as String?,
       plan: d['plan'] as String? ?? 'free',
       wipe: WipeRequest.fromMap(d['wipe'] as Map?),
+      customCategories: [for (final c in d['categories'] as List? ?? []) c as String],
+      fx: FxSettings.fromMap(d['fx'] as Map?),
       currencies: () {
         final list = [for (final c in d['currencies'] as List? ?? []) Currency.parse(c as String?)];
         return list.isEmpty ? defaultCurrencies : list;
@@ -197,6 +201,16 @@ class FirestoreRepository implements Repository {
       });
 
   @override
+  Future<void> setCategories(String hid, List<String> customCategories) =>
+      _household(hid).update({'categories': customCategories});
+
+  @override
+  Future<void> setFx(String hid, FxSettings fx) => _household(hid).update({'fx': fx.toMap()});
+
+  @override
+  Future<FxQuote> fetchUsdRate(FxSource source) => fetchUsdQuote(source);
+
+  @override
   Future<void> switchHousehold(String? id, {String? name}) =>
       _db.collection('users').doc(_uid).set({
         'householdId': id,
@@ -226,7 +240,7 @@ class FirestoreRepository implements Repository {
         for (final d in [...shared.docs, ...mine.docs]) d.reference.path: d.reference,
       }.values);
     }
-    for (final col in ['incomes', 'settlements', if (scope == WipeScope.all) 'budgets']) {
+    for (final col in ['incomes', 'settlements', if (scope == WipeScope.all) ...['budgets', 'goals']]) {
       refs.addAll((await _col(hid, col).get()).docs.map((d) => d.reference));
     }
     for (var i = 0; i < refs.length; i += 400) {
@@ -315,6 +329,13 @@ class FirestoreRepository implements Repository {
   Future<void> saveBudget(String hid, Budget b) => _col(hid, 'budgets').doc(b.id).set(b.toMap());
   @override
   Future<void> deleteBudget(String hid, String id) => _col(hid, 'budgets').doc(id).delete();
+
+  @override
+  Stream<List<Goal>> watchGoals(String hid) => _all(hid, 'goals', Goal.fromMap);
+  @override
+  Future<void> saveGoal(String hid, Goal g) => _col(hid, 'goals').doc(g.id).set(g.toMap());
+  @override
+  Future<void> deleteGoal(String hid, String id) => _col(hid, 'goals').doc(id).delete();
 
   String _code() => List.generate(
       8, (_) => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[_rand.nextInt(32)]).join();

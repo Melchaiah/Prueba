@@ -7,6 +7,9 @@ import 'logic/finance.dart';
 import 'logic/plan.dart';
 import 'models/models.dart';
 
+/// Cómo se agrupan los movimientos en la lista.
+enum GroupBy { day, person, category }
+
 /// Datos del hogar en vivo. Se suscribe a todas las colecciones y avisa a
 /// la UI cuando algo cambia (incluidos los cambios que hace la pareja).
 class HouseholdState extends ChangeNotifier {
@@ -22,6 +25,7 @@ class HouseholdState extends ChangeNotifier {
       repo.watchIncomes(hid).listen((v) => _set(() => incomes = v), onError: ignore),
       repo.watchSettlements(hid).listen((v) => _set(() => settlements = v), onError: ignore),
       repo.watchBudgets(hid).listen((v) => _set(() => budgets = v), onError: ignore),
+      repo.watchGoals(hid).listen((v) => _set(() => goals = v), onError: ignore),
     ]);
   }
 
@@ -37,6 +41,66 @@ class HouseholdState extends ChangeNotifier {
   List<Income> incomes = [];
   List<Settlement> settlements = [];
   List<Budget> budgets = [];
+  List<Goal> goals = [];
+
+  // --- Filtros de la pestaña Movimientos ---
+  /// Quién pagó (null = todos).
+  String? filterPayer;
+
+  /// true = solo compartidos, false = solo personales, null = todos.
+  bool? filterShared;
+  GroupBy groupBy = GroupBy.day;
+
+  void setFilter({String? Function()? payer, bool? Function()? shared, GroupBy? group}) =>
+      _set(() {
+        if (payer != null) filterPayer = payer();
+        if (shared != null) filterShared = shared();
+        if (group != null) groupBy = group;
+      });
+
+  // --- Cotización del dólar ---
+  /// Centavos de peso por dólar; null si todavía no se pudo obtener.
+  FxQuote? usdQuote;
+  bool fxLoading = false;
+  bool fxFailed = false;
+  FxSettings? _fxLoaded;
+
+  FxSettings get fx => household?.fx ?? const FxSettings();
+
+  /// La cotización solo tiene sentido si el hogar usa pesos y dólares.
+  bool get fxEnabled =>
+      currencies.contains(Currency.ars) && currencies.contains(Currency.usd);
+
+  /// Vuelve a consultar la cotización (o toma la manual).
+  Future<void> refreshFx() async {
+    final settings = fx;
+    _fxLoaded = settings;
+    if (settings.source == FxSource.manual) {
+      _set(() {
+        usdQuote = settings.manual > 0 ? FxQuote(settings.manual) : null;
+        fxLoading = false;
+        fxFailed = false;
+      });
+      return;
+    }
+    _set(() => fxLoading = true);
+    try {
+      final q = await repo.fetchUsdRate(settings.source);
+      if (_fxLoaded != settings) return; // cambió la fuente mientras tanto
+      _set(() {
+        usdQuote = q;
+        fxFailed = false;
+      });
+    } catch (_) {
+      if (_fxLoaded == settings) _set(() => fxFailed = true);
+    } finally {
+      if (_fxLoaded == settings) _set(() => fxLoading = false);
+    }
+  }
+
+  /// Categorías del hogar (las de la app más las propias).
+  List<String> get categories =>
+      household?.categories ?? const Household(id: '', name: '', members: []).categories;
 
   /// Mes que se está mirando en las pantallas.
   YearMonth month = YearMonth.now();
@@ -59,6 +123,10 @@ class HouseholdState extends ChangeNotifier {
       repo.switchHousehold(h.id, name: h.name).catchError((_) {});
     }
     _runApprovedWipe(h);
+    if (fxEnabled && _fxLoaded != h.fx) {
+      if (_fxLoaded != null && _fxLoaded!.source != h.fx.source) usdQuote = null;
+      refreshFx();
+    }
   }
 
   /// Cuando el borrado fue aceptado, cada app borra lo que le corresponde.

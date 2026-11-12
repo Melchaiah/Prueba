@@ -41,12 +41,13 @@ service cloud.firestore {
         && request.resource.data.memberIds == [request.auth.uid]
         && !('plan' in request.resource.data);
 
-      // Un miembro puede cambiar el nombre del hogar, las monedas, el pedido
-      // de borrado de datos y SU configuración.
+      // Un miembro puede cambiar el nombre del hogar, las monedas, las
+      // categorías, la cotización, el pedido de borrado de datos y SU
+      // configuración.
       allow update: if signedIn() && request.auth.uid in resource.data.memberIds
         && request.resource.data.memberIds == resource.data.memberIds
         && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['name', 'members', 'currencies', 'wipe'])
+             .hasOnly(['name', 'members', 'currencies', 'wipe', 'categories', 'fx'])
         && request.resource.data.members.diff(resource.data.members).affectedKeys()
              .hasOnly([request.auth.uid]);
 

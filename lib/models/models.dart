@@ -121,6 +121,50 @@ extension PrivacyModeX on PrivacyMode {
       .firstWhere((m) => m.name == s, orElse: () => PrivacyMode.allVisible);
 }
 
+/// De dónde sale la cotización del dólar (pesos por dólar).
+enum FxSource {
+  bcra('Oficial BCRA', 'Tipo de cambio de referencia que publica el Banco Central.'),
+  oficial('Oficial bancos', 'Precio de venta promedio en los bancos.'),
+  blue('Blue', 'Dólar informal.'),
+  mep('MEP (bolsa)', 'Dólar que se compra con bonos.'),
+  tarjeta('Tarjeta', 'Oficial más impuestos, para consumos con tarjeta.'),
+  manual('Manual', 'El valor que escriban ustedes.');
+
+  const FxSource(this.label, this.description);
+  final String label;
+  final String description;
+}
+
+/// Configuración de la cotización del dólar del hogar.
+class FxSettings {
+  final FxSource source;
+
+  /// Valor manual: centavos de peso por dólar.
+  final int manual;
+  const FxSettings({this.source = FxSource.bcra, this.manual = 0});
+
+  Map<String, dynamic> toMap() => {'source': source.name, 'manual': manual};
+
+  factory FxSettings.fromMap(Map? m) => FxSettings(
+        source: FxSource.values
+            .firstWhere((x) => x.name == m?['source'], orElse: () => FxSource.bcra),
+        manual: (m?['manual'] as num?)?.toInt() ?? 0,
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      other is FxSettings && other.source == source && other.manual == manual;
+  @override
+  int get hashCode => Object.hash(source, manual);
+}
+
+/// Cotización obtenida: centavos de peso por dólar y de cuándo es.
+class FxQuote {
+  final int rate;
+  final DateTime? date;
+  const FxQuote(this.rate, [this.date]);
+}
+
 class YearMonth implements Comparable<YearMonth> {
   final int year;
   final int month; // 1..12
@@ -190,6 +234,10 @@ class Household {
   /// Plan del hogar ('free', 'premium'). Solo lo escribe el servidor.
   final String plan;
 
+  /// Categorías propias del hogar, además de las que trae la app.
+  final List<String> customCategories;
+  final FxSettings fx;
+
   const Household({
     required this.id,
     required this.name,
@@ -198,12 +246,25 @@ class Household {
     this.currencies = defaultCurrencies,
     this.wipe,
     this.plan = 'free',
+    this.customCategories = const [],
+    this.fx = const FxSettings(),
   });
+
+  /// Todas las categorías: las de la app, las propias y "Otros" al final.
+  List<String> get categories => [
+        for (final c in defaultCategories)
+          if (c != 'Otros') c,
+        for (final c in customCategories)
+          if (!defaultCategories.contains(c)) c,
+        'Otros',
+      ];
 
   Household copyWith({
     List<Member>? members,
     List<Currency>? currencies,
     WipeRequest? Function()? wipe,
+    List<String>? customCategories,
+    FxSettings? fx,
   }) =>
       Household(
         id: id,
@@ -213,6 +274,8 @@ class Household {
         members: members ?? this.members,
         currencies: currencies ?? this.currencies,
         wipe: wipe != null ? wipe() : this.wipe,
+        customCategories: customCategories ?? this.customCategories,
+        fx: fx ?? this.fx,
       );
 
   Member? member(String id) {
@@ -538,6 +601,97 @@ class Budget {
         category: m['category'] as String,
         limit: (m['limit'] as num).toInt(),
         currency: Currency.parse(m['currency'] as String?),
+      );
+}
+
+/// Aporte de una persona a una meta de ahorro.
+class Contribution {
+  final String memberId;
+  final int amount; // centavos; negativo = retiro
+  final DateTime date;
+  const Contribution({required this.memberId, required this.amount, required this.date});
+
+  Map<String, dynamic> toMap() =>
+      {'memberId': memberId, 'amount': amount, 'date': date.millisecondsSinceEpoch};
+
+  factory Contribution.fromMap(Map m) => Contribution(
+        memberId: m['memberId'] as String,
+        amount: (m['amount'] as num).toInt(),
+        date: DateTime.fromMillisecondsSinceEpoch((m['date'] as num).toInt()),
+      );
+}
+
+/// Meta de ahorro en común (vacaciones, auto, fondo de emergencia…).
+class Goal {
+  final String id;
+  final String name;
+  final int target; // centavos
+  final Currency currency;
+
+  /// Mes en que la quieren cumplir (opcional).
+  final YearMonth? deadline;
+  final List<Contribution> contributions;
+
+  const Goal({
+    required this.id,
+    required this.name,
+    required this.target,
+    required this.currency,
+    this.deadline,
+    this.contributions = const [],
+  });
+
+  int get saved => contributions.fold(0, (a, c) => a + c.amount);
+  int get remaining => target - saved;
+  double get ratio => target <= 0 ? 0 : (saved / target).clamp(0, 1).toDouble();
+  bool get reached => saved >= target;
+
+  int savedBy(String memberId) => contributions
+      .where((c) => c.memberId == memberId)
+      .fold(0, (a, c) => a + c.amount);
+
+  /// Cuánto hay que juntar por mes para llegar a [deadline], contando desde
+  /// [from] inclusive. Null si no hay fecha, ya pasó o ya se cumplió.
+  int? monthlyNeeded(YearMonth from) {
+    final d = deadline;
+    if (d == null || reached || d < from) return null;
+    // Redondeado para arriba a pesos enteros.
+    return (remaining / (d.monthsSince(from) + 1) / 100).ceil() * 100;
+  }
+
+  Goal copyWith({
+    String? name,
+    int? target,
+    Currency? currency,
+    YearMonth? Function()? deadline,
+    List<Contribution>? contributions,
+  }) =>
+      Goal(
+        id: id,
+        name: name ?? this.name,
+        target: target ?? this.target,
+        currency: currency ?? this.currency,
+        deadline: deadline != null ? deadline() : this.deadline,
+        contributions: contributions ?? this.contributions,
+      );
+
+  Map<String, dynamic> toMap() => {
+        'name': name,
+        'target': target,
+        'currency': currency.code,
+        'deadline': deadline?.key,
+        'contributions': [for (final c in contributions) c.toMap()],
+      };
+
+  factory Goal.fromMap(String id, Map<String, dynamic> m) => Goal(
+        id: id,
+        name: m['name'] as String? ?? 'Meta',
+        target: (m['target'] as num?)?.toInt() ?? 0,
+        currency: Currency.parse(m['currency'] as String?),
+        deadline: m['deadline'] == null ? null : YearMonth.parse(m['deadline'] as String),
+        contributions: [
+          for (final c in m['contributions'] as List? ?? []) Contribution.fromMap(c as Map),
+        ],
       );
 }
 

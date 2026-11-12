@@ -28,6 +28,40 @@ void main() {
     expect(find.textContaining('700.000'), findsWidgets);
     expect(find.textContaining('ajustado'), findsOneWidget);
 
+    // Filtrar por quién pagó y agrupar por persona.
+    await tester.tap(find.widgetWithText(FilterChip, 'Pagó Juan'));
+    await tester.pumpAndSettle();
+    expect(find.text('Supermercado semanal'), findsOneWidget);
+    expect(find.text('Alquiler'), findsNothing);
+    expect(find.textContaining('con este filtro'), findsOneWidget);
+    await tester.ensureVisible(find.widgetWithText(FilterChip, 'Pagó Juan'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilterChip, 'Pagó Juan'));
+    await tester.pumpAndSettle();
+    await tester.drag(find.widgetWithText(FilterChip, 'Pagó Juan'), const Offset(600, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Por día'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Por persona').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Pagaste vos'), findsOneWidget);
+
+    // Desde el resumen, tocar una categoría muestra su detalle.
+    await tester.tap(find.text('Resumen').last);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Salidas').first, 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(find.text('Salidas').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Salidas').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Cena'), findsOneWidget);
+    expect(find.text('Supermercado semanal'), findsNothing);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Movimientos').last);
+    await tester.pumpAndSettle();
+
     // Cargar un gasto nuevo.
     await tester.tap(find.text('Gasto'));
     await tester.pumpAndSettle();

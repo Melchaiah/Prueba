@@ -6,6 +6,8 @@ import '../logic/money.dart';
 import '../models/models.dart';
 import '../widgets/common.dart';
 import 'dialogs.dart';
+import 'goals.dart';
+import 'movements_tab.dart' show openCategoryDetail;
 
 class SummaryTab extends StatelessWidget {
   const SummaryTab({super.key});
@@ -42,6 +44,9 @@ class SummaryTab extends StatelessWidget {
                     Text('Todavía no hay gastos este mes. Tocá "Gasto" para cargar el primero.'),
                   ]),
                 if (budgets.isNotEmpty) _BudgetsCard(budgets),
+                _EvolutionCard(s),
+                if (s.goals.isNotEmpty) _GoalsCard(s),
+                if (s.fxEnabled) _FxCard(s),
               ],
             ),
           ),
@@ -307,14 +312,27 @@ class _SharedCard extends StatelessWidget {
           ].join(' · '),
           style: t.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
         ),
-        const SizedBox(height: 12),
+        if (c == Currency.usd && s.fxEnabled && s.usdQuote != null)
+          Text(
+            'Equivale a ${formatMoney(usdToArs(total, s.usdQuote!.rate), Currency.ars, compact: true)} '
+            'al dólar ${s.fx.source.label}',
+            style: t.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        const SizedBox(height: 8),
+        Text('Tocá una categoría para ver el detalle.',
+            style: t.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+        const SizedBox(height: 4),
         for (final e in entries)
           Semantics(
+            button: true,
             label:
-                '${e.key}: ${formatMoney(e.value, c, compact: true)}, ${formatPercent((e.value * 100 / total).roundToDouble())} del total',
+                '${e.key}: ${formatMoney(e.value, c, compact: true)}, ${formatPercent((e.value * 100 / total).roundToDouble())} del total. Ver detalle',
             excludeSemantics: true,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => openCategoryDetail(context, e.key, c),
+              child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Row(children: [
                   Icon(categoryIcon(e.key), size: 18, color: scheme.onSurfaceVariant),
@@ -329,6 +347,7 @@ class _SharedCard extends StatelessWidget {
                       style: t.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
                     ),
                   ),
+                  Icon(Icons.chevron_right, size: 20, color: scheme.onSurfaceVariant),
                 ]),
                 const SizedBox(height: 6),
                 LinearProgressIndicator(
@@ -338,10 +357,191 @@ class _SharedCard extends StatelessWidget {
                   backgroundColor: scheme.surfaceContainerHighest,
                 ),
               ]),
-            ),
+            )),
           ),
       ],
     );
+  }
+}
+
+/// Gasto compartido de los últimos meses. Una sola serie: barras de un
+/// color, con el mes que se está mirando resaltado. Tocar una barra lleva a
+/// ese mes.
+class _EvolutionCard extends StatelessWidget {
+  const _EvolutionCard(this.s);
+  final HouseholdState s;
+
+  static const _months = 6;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final now = YearMonth.now();
+    final last = s.month >= now.add(-(_months - 1)) ? (s.month > now ? s.month : now) : s.month;
+    final c = s.mainCurrency;
+    final data = sharedTotalsByMonth(
+      last: last,
+      count: _months,
+      currency: c,
+      expenses: s.expenses,
+      recurring: s.recurring,
+    );
+    final max = data.fold(0, (a, e) => e.$2 > a ? e.$2 : a);
+    final current = data.firstWhere((e) => e.$1 == s.month).$2;
+    final previous = data.where((e) => e.$1 == s.month.add(-1)).firstOrNull?.$2;
+    String short(YearMonth m) => monthLabel(m).substring(0, 3).toLowerCase();
+    String name(YearMonth m) => monthLabel(m).split(' ').first.toLowerCase();
+
+    String? change;
+    IconData? changeIcon;
+    if (previous != null && previous > 0 && current > 0) {
+      final pct = ((current - previous) * 100 / previous).round();
+      if (pct == 0) {
+        change = 'Igual que en ${name(s.month.add(-1))}';
+        changeIcon = Icons.trending_flat;
+      } else {
+        change = '${pct.abs()}% ${pct > 0 ? 'más' : 'menos'} que en ${name(s.month.add(-1))}';
+        changeIcon = pct > 0 ? Icons.trending_up : Icons.trending_down;
+      }
+    }
+
+    return SectionCard(
+      title: 'Evolución mes a mes',
+      children: [
+        Text('Gasto compartido en ${name(s.month)}',
+            style: t.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(formatMoney(current, c, compact: true),
+              style: t.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
+        ),
+        if (change != null)
+          Row(children: [
+            Icon(changeIcon, size: 18, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 6),
+            Text(change, style: t.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+          ]),
+        const SizedBox(height: 16),
+        SizedBox(
+          height: 148,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final (m, v) in data)
+                Expanded(
+                  child: Semantics(
+                    button: true,
+                    selected: m == s.month,
+                    label: '${monthLabel(m)}: ${formatMoney(v, c, compact: true)}',
+                    excludeSemantics: true,
+                    child: Tooltip(
+                      message: '${monthLabel(m)}: ${formatMoney(v, c, compact: true)}',
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () => s.setMonth(m),
+                        child: Column(children: [
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 6),
+                              child: Align(
+                                alignment: Alignment.bottomCenter,
+                                child: FractionallySizedBox(
+                                  heightFactor: max == 0 ? 0.02 : (v / max).clamp(0.02, 1.0),
+                                  child: Container(
+                                    constraints: const BoxConstraints(maxWidth: 36),
+                                    decoration: BoxDecoration(
+                                      color: m == s.month
+                                          ? scheme.primary
+                                          : scheme.primary.withValues(alpha: 0.35),
+                                      borderRadius:
+                                          const BorderRadius.vertical(top: Radius.circular(4)),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          Container(height: 1, color: scheme.outlineVariant),
+                          const SizedBox(height: 6),
+                          Text(
+                            short(m),
+                            style: t.labelMedium?.copyWith(
+                              color: m == s.month ? scheme.onSurface : scheme.onSurfaceVariant,
+                              fontWeight: m == s.month ? FontWeight.w700 : null,
+                            ),
+                          ),
+                        ]),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text('Tocá un mes para verlo. Incluye cuotas y gastos fijos'
+            '${s.currencies.length > 1 ? ', solo en ${c.code}' : ''}.',
+            style: t.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+      ],
+    );
+  }
+}
+
+/// Avance de las metas de ahorro.
+class _GoalsCard extends StatelessWidget {
+  const _GoalsCard(this.s);
+  final HouseholdState s;
+
+  @override
+  Widget build(BuildContext context) => SectionCard(
+        title: 'Metas de ahorro',
+        children: [for (final g in s.goals) GoalMeter(g, onTap: () => showGoalSheet(context, g.id))],
+      );
+}
+
+/// Cotización del dólar que usa el hogar.
+class _FxCard extends StatelessWidget {
+  const _FxCard(this.s);
+  final HouseholdState s;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final q = s.usdQuote;
+    return SectionCard(children: [
+      Row(children: [
+        Icon(Icons.currency_exchange, color: scheme.onSurfaceVariant),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Dólar ${s.fx.source.label}',
+                style: t.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+            Text(
+              q != null
+                  ? formatMoney(q.rate, Currency.ars)
+                  : s.fxLoading
+                      ? 'Consultando…'
+                      : s.fx.source == FxSource.manual
+                          ? 'Cargá el valor en Ajustes'
+                          : 'Sin conexión',
+              style: t.titleMedium,
+            ),
+            if (q?.date != null)
+              Text('Actualizado el ${formatDate(q!.date!)}',
+                  style: t.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+          ]),
+        ),
+        if (s.fx.source != FxSource.manual)
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Actualizar cotización',
+            onPressed: s.fxLoading ? null : s.refreshFx,
+          ),
+      ]),
+    ]);
   }
 }
 
@@ -394,12 +594,12 @@ class _BudgetsCard extends StatelessWidget {
                       color: b.level == BudgetLevel.exceeded ? scheme.error : warning,
                     ),
                     const SizedBox(width: 6),
-                    Text(
+                    Expanded(child: Text(
                       b.remaining < 0
                           ? 'Se pasaron por ${formatMoney(-b.remaining, b.budget.currency, compact: true)}'
                           : 'Cerca del tope: quedan ${formatMoney(b.remaining, b.budget.currency, compact: true)}',
                       style: t.bodySmall,
-                    ),
+                    )),
                   ]),
                 ),
             ]),

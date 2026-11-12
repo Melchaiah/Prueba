@@ -6,6 +6,7 @@ import '../logic/money.dart';
 import '../models/models.dart';
 import 'dialogs.dart';
 import 'expense_form_screen.dart';
+import 'goals.dart';
 import '../widgets/common.dart';
 
 class PlanningTab extends StatelessWidget {
@@ -90,6 +91,21 @@ class PlanningTab extends StatelessWidget {
             onTap: () => openExpenseForm(context, existing: e),
           ),
         if (pending.isNotEmpty) _totals(context, pendingTotals, 'Falta pagar (próximos meses)'),
+        SectionHeader(
+          'Metas de ahorro',
+          action: TextButton.icon(
+            icon: const Icon(Icons.add),
+            label: const Text('Agregar'),
+            onPressed: () => showGoalDialog(context),
+          ),
+        ),
+        if (s.goals.isEmpty)
+          const _Empty('Vacaciones, un auto, un fondo de emergencia… Pongan un objetivo y vayan anotando lo que aporta cada uno.'),
+        for (final g in s.goals)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: GoalMeter(g, onTap: () => showGoalSheet(context, g.id)),
+          ),
         SectionHeader(
           'Presupuestos mensuales',
           action: TextButton.icon(

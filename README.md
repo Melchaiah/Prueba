@@ -29,6 +29,15 @@ y ven todo sincronizado en tiempo real.
 - **Privacidad configurable por persona**: cada uno elige si su pareja ve todos sus
   gastos personales, ninguno, o si lo decide en cada gasto. Se aplica en el
   servidor (reglas de Firestore), no solo en la app.
+- **Movimientos filtrables**: por quién pagó, compartidos o personales, y agrupados
+  por día, por persona o por categoría, con el subtotal de cada grupo.
+- **Detalle por categoría**: en el Resumen, tocar una categoría muestra sus gastos del mes.
+- **Evolución mes a mes** del gasto compartido (últimos 6 meses).
+- **Categorías propias** del hogar, además de las que trae la app.
+- **Cotización del dólar** configurable (oficial BCRA, oficial bancos, blue, MEP, tarjeta
+  o un valor manual) para ver en pesos los gastos en dólares. Usa las APIs públicas y
+  gratuitas del BCRA y de dolarapi.com.
+- **Metas de ahorro en común** con aportes de cada uno y cuánto falta juntar por mes.
 - **Apariencia**: tema claro, oscuro o el del celular, y paleta de color a elección.
 - **Cambiar de mes deslizando** hacia los costados en Resumen y Movimientos.
 - **Borrar datos y empezar de cero**: uno lo pide y el otro lo tiene que aceptar
@@ -110,10 +119,7 @@ Hoy todo es gratis, pero la base ya está:
 ## Ideas para próximas versiones
 
 - Notificaciones cuando la pareja carga un gasto o se pasa un presupuesto.
-- Cotización del dólar para ver totales unificados.
-- Metas de ahorro en común.
-- Evolución mes a mes y exportar a Excel.
-- Categorías personalizadas.
+- Exportar a Excel.
 - Adjuntar foto del ticket.
 - Colores tomados del fondo de pantalla del celular (Material You).
 - Versión iPhone (el código ya es compatible; falta configurar Firebase para iOS).

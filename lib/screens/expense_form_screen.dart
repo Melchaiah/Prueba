@@ -22,6 +22,8 @@ Future<void> openExpenseForm(BuildContext context, {ExpenseBase? existing}) {
   ));
 }
 
+const _newCategory = '\u0000nueva';
+
 enum _Frequency { once, installments, monthly }
 
 enum _SplitPreset { equal, income, allMe, allPartner, custom }
@@ -44,6 +46,7 @@ class _ExpenseFormScreenState extends State<ExpenseFormScreen> {
   bool _shared = true;
   late Currency _currency;
   String _category = defaultCategories.first;
+  int _catKey = 0;
   late String _paidBy;
   _SplitPreset _preset = _SplitPreset.income;
   double _myPercent = 50;
@@ -79,7 +82,7 @@ class _ExpenseFormScreenState extends State<ExpenseFormScreen> {
     }
     _shared = e.isShared;
     _currency = e.currency;
-    _category = defaultCategories.contains(e.category) ? e.category : 'Otros';
+    _category = e.category;
     _visible = e.visibleToPartner;
     _myPercent = e.split[s.me] ?? 50;
     _preset = _SplitPreset.custom;
@@ -252,8 +255,21 @@ class _ExpenseFormScreenState extends State<ExpenseFormScreen> {
               initialValue: _category,
               isExpanded: true,
               decoration: const InputDecoration(labelText: 'Categoría'),
-              items: [for (final c in defaultCategories) DropdownMenuItem(value: c, child: Text(c))],
-              onChanged: (v) => setState(() => _category = v!),
+              key: ValueKey('cat-$_catKey-$_category'),
+              items: [
+                for (final c in {...s.categories, _category})
+                  DropdownMenuItem(value: c, child: Text(c)),
+                const DropdownMenuItem(value: _newCategory, child: Text('Nueva categoría…')),
+              ],
+              onChanged: (v) async {
+                if (v != _newCategory) return setState(() => _category = v!);
+                final created = await showCategoryDialog(context);
+                if (!mounted) return;
+                setState(() {
+                  _category = created ?? _category;
+                  _catKey++; // vuelve a dibujar el selector con la elección real
+                });
+              },
             ),
             if (_shared && partner != null) ...[
               const SizedBox(height: 20),

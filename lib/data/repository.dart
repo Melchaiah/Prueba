@@ -37,6 +37,11 @@ abstract class Repository {
   Stream<Household> watchHousehold(String householdId);
   Future<void> setPrivacy(String householdId, PrivacyMode mode);
   Future<void> setCurrencies(String householdId, List<Currency> currencies);
+  Future<void> setCategories(String householdId, List<String> customCategories);
+  Future<void> setFx(String householdId, FxSettings fx);
+
+  /// Cotización del dólar según [source] (que no sea manual).
+  Future<FxQuote> fetchUsdRate(FxSource source);
 
   /// Cambia el hogar que se está mirando. Con [id] null vuelve a la pantalla
   /// de crear/unirse. [name] actualiza el nombre guardado en la cuenta.
@@ -67,6 +72,10 @@ abstract class Repository {
   Future<void> saveSettlement(String householdId, Settlement s);
   Future<void> saveBudget(String householdId, Budget b);
   Future<void> deleteBudget(String householdId, String id);
+
+  Stream<List<Goal>> watchGoals(String householdId);
+  Future<void> saveGoal(String householdId, Goal g);
+  Future<void> deleteGoal(String householdId, String id);
 
   /// Genera un id nuevo para un documento.
   String newId();

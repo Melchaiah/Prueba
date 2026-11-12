@@ -123,7 +123,7 @@ Future<void> showBudgetDialog(BuildContext context, {Budget? existing}) {
   final form = GlobalKey<FormState>();
   final used = s.budgets.map((b) => b.category).toSet();
   final options = [
-    for (final c in defaultCategories)
+    for (final c in {...s.categories, ?existing?.category})
       if (c == existing?.category || !used.contains(c)) c,
   ];
   if (options.isEmpty) {
@@ -252,4 +252,51 @@ Future<bool> showMonthAdjustDialog(
     ),
   );
   return changed ?? false;
+}
+
+/// Agrega una categoría propia al hogar. Devuelve el nombre, o null si se
+/// canceló.
+Future<String?> showCategoryDialog(BuildContext context) async {
+  final s = HouseholdScope.of(context);
+  final form = GlobalKey<FormState>();
+  final name = TextEditingController();
+  final created = await showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Nueva categoría'),
+      content: Form(
+        key: form,
+        child: TextFormField(
+          controller: name,
+          autofocus: true,
+          maxLength: 24,
+          decoration: const InputDecoration(labelText: 'Nombre', hintText: 'Mascotas, Gimnasio…'),
+          textCapitalization: TextCapitalization.sentences,
+          validator: (v) {
+            final n = (v ?? '').trim();
+            if (n.isEmpty) return 'Escribí un nombre';
+            if (s.categories.any((c) => c.toLowerCase() == n.toLowerCase())) {
+              return 'Esa categoría ya existe';
+            }
+            return null;
+          },
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+        FilledButton(
+          onPressed: () {
+            if (form.currentState!.validate()) Navigator.pop(ctx, name.text.trim());
+          },
+          child: const Text('Agregar'),
+        ),
+      ],
+    ),
+  );
+  if (created == null || !context.mounted) return null;
+  await guard(
+      context,
+      s.repo.setCategories(
+          s.hid, [...?s.household?.customCategories, created]));
+  return created;
 }

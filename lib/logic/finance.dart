@@ -278,6 +278,29 @@ MonthSummary summarizeMonth({
   );
 }
 
+/// Gasto compartido de cada mes en [currency], para ver la evolución.
+/// Devuelve [count] meses terminando en [last], del más viejo al más nuevo.
+List<(YearMonth, int)> sharedTotalsByMonth({
+  required YearMonth last,
+  required int count,
+  required Currency currency,
+  required Iterable<Expense> expenses,
+  required Iterable<RecurringExpense> recurring,
+}) =>
+    [
+      for (var i = count - 1; i >= 0; i--)
+        (
+          last.add(-i),
+          chargesForMonth(last.add(-i), expenses, recurring)
+              .where((c) => c.isShared && c.currency == currency)
+              .fold(0, (a, c) => a + c.amount),
+        ),
+    ];
+
+/// Convierte dólares (en centavos) a pesos (en centavos) con [rate]
+/// expresado en centavos de peso por dólar.
+int usdToArs(int usdCents, int rate) => (usdCents * rate / 100).round();
+
 enum BudgetLevel { ok, warning, exceeded }
 
 class BudgetStatus {

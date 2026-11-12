@@ -33,6 +33,7 @@ class MemoryRepository implements Repository {
   final Map<String, Map<String, Income>> _incomes = {};
   final Map<String, Map<String, Settlement>> _settlements = {};
   final Map<String, Map<String, Budget>> _budgets = {};
+  final Map<String, Map<String, Goal>> _goals = {};
 
   /// Emite el valor actual y lo vuelve a emitir con cada cambio.
   Stream<T> _watch<T>(T Function() read) {
@@ -118,6 +119,8 @@ class MemoryRepository implements Repository {
       name: h.name,
       members: [...h.members, Member(id: u.id, name: u.name)],
       currencies: h.currencies,
+      customCategories: h.customCategories,
+      fx: h.fx,
     );
     _userHouseholds.putIfAbsent(u.id, () => {})[id] = h.name;
     _user = _mk(u.id, u.name, id);
@@ -142,6 +145,24 @@ class MemoryRepository implements Repository {
     _households[householdId] = _households[householdId]!.copyWith(currencies: currencies);
     _notify();
   }
+
+  @override
+  Future<void> setCategories(String householdId, List<String> customCategories) async {
+    _households[householdId] =
+        _households[householdId]!.copyWith(customCategories: customCategories);
+    _notify();
+  }
+
+  @override
+  Future<void> setFx(String householdId, FxSettings fx) async {
+    _households[householdId] = _households[householdId]!.copyWith(fx: fx);
+    _notify();
+  }
+
+  /// En el modo demo la cotización es fija.
+  @override
+  Future<FxQuote> fetchUsdRate(FxSource source) async =>
+      FxQuote(150000, DateTime.now());
 
   @override
   Future<void> switchHousehold(String? id, {String? name}) async {
@@ -175,6 +196,7 @@ class MemoryRepository implements Repository {
     if (scope == WipeScope.all) {
       _recurring[hid]?.removeWhere((_, e) => mine(e));
       _budgets[hid]?.clear();
+      _goals[hid]?.clear();
     }
     _notify();
   }
@@ -235,6 +257,14 @@ class MemoryRepository implements Repository {
   @override
   Future<void> deleteBudget(String hid, String id) => _del(_budgets, hid, id);
 
+  @override
+  Stream<List<Goal>> watchGoals(String hid) =>
+      _watch(() => (_goals[hid]?.values ?? const <Goal>[]).toList());
+  @override
+  Future<void> saveGoal(String hid, Goal g) => _put(_goals, hid, g.id, g);
+  @override
+  Future<void> deleteGoal(String hid, String id) => _del(_goals, hid, id);
+
   String _code() => List.generate(
       6, (_) => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[_rand.nextInt(32)]).join();
 
@@ -266,7 +296,17 @@ class MemoryRepository implements Repository {
       'e2': Expense(id: 'e2', description: 'Heladera', category: 'Hogar', amount: 120000000, currency: Currency.ars, date: today.subtract(const Duration(days: 40)), paidBy: a, isShared: true, split: half, installments: 6, firstInstallment: now.add(-1)),
       'e3': Expense(id: 'e3', description: 'Cena', category: 'Salidas', amount: 4200000, currency: Currency.ars, date: today.subtract(const Duration(days: 3)), paidBy: b, isShared: true, split: half, firstInstallment: now),
       'e4': Expense(id: 'e4', description: 'Zapatillas', category: 'Ropa', amount: 15000000, currency: Currency.ars, date: today.subtract(const Duration(days: 2)), paidBy: a, isShared: false, split: const {a: 100}, firstInstallment: now),
+      'e6': Expense(id: 'e6', description: 'Supermercado', category: 'Supermercado', amount: 31000000, currency: Currency.ars, date: DateTime(now.add(-1).year, now.add(-1).month, 12), paidBy: a, isShared: true, split: prop, firstInstallment: now.add(-1)),
+      'e7': Expense(id: 'e7', description: 'Supermercado', category: 'Supermercado', amount: 24500000, currency: Currency.ars, date: DateTime(now.add(-2).year, now.add(-2).month, 9), paidBy: b, isShared: true, split: prop, firstInstallment: now.add(-2)),
+      'e8': Expense(id: 'e8', description: 'Nafta', category: 'Transporte', amount: 6800000, currency: Currency.ars, date: today.subtract(const Duration(days: 5)), paidBy: a, isShared: true, split: half, firstInstallment: now),
       'e5': Expense(id: 'e5', description: 'Regalo sorpresa', category: 'Regalos', amount: 3000000, currency: Currency.ars, date: today.subtract(const Duration(days: 1)), paidBy: b, isShared: false, split: const {b: 100}, firstInstallment: now, visibleToPartner: false),
+    };
+    _goals[hid] = {
+      'g1': Goal(id: 'g1', name: 'Vacaciones', target: 300000000, currency: Currency.ars, deadline: now.add(5), contributions: [
+        Contribution(memberId: a, amount: 60000000, date: today.subtract(const Duration(days: 35))),
+        Contribution(memberId: b, amount: 40000000, date: today.subtract(const Duration(days: 33))),
+        Contribution(memberId: a, amount: 30000000, date: today.subtract(const Duration(days: 4))),
+      ]),
     };
     _budgets[hid] = {
       'b1': const Budget(id: 'b1', category: 'Supermercado', limit: 40000000, currency: Currency.ars),

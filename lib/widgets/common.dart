@@ -17,7 +17,8 @@ IconData categoryIcon(String c) => switch (c) {
       'Suscripciones' => Icons.subscriptions_outlined,
       'Educación' => Icons.school_outlined,
       'Regalos' => Icons.card_giftcard_outlined,
-      _ => Icons.receipt_long_outlined,
+      'Otros' => Icons.receipt_long_outlined,
+      _ => Icons.label_outline,
     };
 
 String? validateAmount(String? v) =>
