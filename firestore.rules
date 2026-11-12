@@ -1,0 +1,100 @@
+rules_version = '2';
+
+// Reglas de seguridad de Firestore para Gastos en Pareja.
+// Publicar con: firebase deploy --only firestore:rules
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function household(hid) {
+      return get(/databases/$(database)/documents/households/$(hid)).data;
+    }
+
+    function isMember(hid) {
+      return signedIn() && request.auth.uid in household(hid).memberIds;
+    }
+
+    // Perfil de cada usuario: solo lo lee y escribe su dueño.
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // Invitaciones: se leen por código exacto (no se pueden listar).
+    match /invites/{code} {
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.auth.uid in getAfter(/databases/$(database)/documents/households/$(request.resource.data.householdId)).data.memberIds;
+      // La borra quien se une, en la misma operación en que entra al hogar.
+      allow delete: if signedIn() && request.auth.uid in
+        getAfter(/databases/$(database)/documents/households/$(resource.data.householdId)).data.memberIds;
+    }
+
+    match /households/{hid} {
+      allow read: if signedIn() && request.auth.uid in resource.data.memberIds;
+
+      allow create: if signedIn()
+        && request.resource.data.memberIds == [request.auth.uid];
+
+      // Un miembro puede cambiar el nombre del hogar y SU configuración.
+      allow update: if signedIn() && request.auth.uid in resource.data.memberIds
+        && request.resource.data.memberIds == resource.data.memberIds
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'members'])
+        && request.resource.data.members.diff(resource.data.members).affectedKeys()
+             .hasOnly([request.auth.uid]);
+
+      // Unirse con un código: alguien que no es miembro se agrega a un hogar
+      // de una sola persona, y en la misma operación borra la invitación
+      // (lo que prueba que conocía el código).
+      allow update: if signedIn() && !(request.auth.uid in resource.data.memberIds)
+        && resource.data.memberIds.size() == 1
+        && request.resource.data.memberIds == resource.data.memberIds.concat([request.auth.uid])
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['memberIds', 'members', 'inviteCode'])
+        && request.resource.data.members.diff(resource.data.members).affectedKeys()
+             .hasOnly([request.auth.uid])
+        && exists(/databases/$(database)/documents/invites/$(resource.data.inviteCode))
+        && !existsAfter(/databases/$(database)/documents/invites/$(resource.data.inviteCode));
+
+      // Gastos y recurrentes: los públicos los ve el hogar; los privados solo
+      // quien los pagó. Los personales solo los puede cargar su dueño.
+      match /{col}/{id} {
+        function isExpenseCol() {
+          return col == 'expenses' || col == 'recurring';
+        }
+
+        allow read: if isMember(hid) && (
+          !isExpenseCol()
+          || resource.data.public == true
+          || resource.data.paidBy == request.auth.uid);
+
+        // Qué se puede escribir: lo compartido es público y lo paga un
+        // miembro; lo personal solo lo carga su dueño.
+        function validWrite() {
+          return !isExpenseCol()
+            || (request.resource.data.isShared == true
+                && request.resource.data.public == true
+                && request.resource.data.paidBy in household(hid).memberIds)
+            || (request.resource.data.isShared == false
+                && request.resource.data.paidBy == request.auth.uid);
+        }
+
+        allow create: if isMember(hid) && validWrite();
+
+        // Solo se edita lo que uno puede ver.
+        allow update: if isMember(hid) && validWrite() && (
+          !isExpenseCol()
+          || resource.data.public == true
+          || resource.data.paidBy == request.auth.uid);
+
+        allow delete: if isMember(hid) && (
+          !isExpenseCol()
+          || resource.data.isShared == true
+          || resource.data.paidBy == request.auth.uid);
+      }
+    }
+  }
+}
