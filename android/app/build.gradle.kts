@@ -49,6 +49,12 @@ android {
         }
     }
 
+    // El lint de Android falla dentro de los plugins de Firebase; los
+    // controles propios (flutter analyze y tests) corren antes en CI.
+    lint {
+        checkReleaseBuilds = false
+    }
+
     buildTypes {
         release {
             signingConfig = signingConfigs.findByName("release")
