@@ -3,13 +3,92 @@
 // Todos los montos se guardan en centavos (int) para evitar errores de
 // redondeo con double. Los meses se representan con [YearMonth].
 
-enum Currency { ars, usd }
+enum Currency {
+  ars('ARS', r'$', 'Peso argentino'),
+  usd('USD', r'US$', 'Dólar estadounidense'),
+  eur('EUR', '€', 'Euro'),
+  brl('BRL', r'R$', 'Real brasileño'),
+  uyu('UYU', r'$U', 'Peso uruguayo'),
+  clp('CLP', r'CLP$', 'Peso chileno'),
+  mxn('MXN', r'MX$', 'Peso mexicano');
 
-extension CurrencyX on Currency {
-  String get code => this == Currency.ars ? 'ARS' : 'USD';
-  String get symbol => this == Currency.ars ? r'$' : 'US\$';
+  const Currency(this.code, this.symbol, this.label);
+  final String code;
+  final String symbol;
+  final String label;
+
   static Currency parse(String? s) =>
-      s == 'USD' ? Currency.usd : Currency.ars;
+      values.firstWhere((c) => c.code == s, orElse: () => ars);
+}
+
+/// Monedas que usa un hogar si no eligió otras.
+const defaultCurrencies = [Currency.ars, Currency.usd];
+
+enum ThemePref { system, light, dark }
+
+/// Preferencias personales (se guardan con la cuenta, no con el hogar).
+class UserPrefs {
+  final ThemePref theme;
+
+  /// Índice en la lista de paletas de `theme.dart`.
+  final int palette;
+
+  /// Mostrar y cargar centavos.
+  final bool showDecimals;
+
+  const UserPrefs({
+    this.theme = ThemePref.system,
+    this.palette = 0,
+    this.showDecimals = true,
+  });
+
+  UserPrefs copyWith({ThemePref? theme, int? palette, bool? showDecimals}) => UserPrefs(
+        theme: theme ?? this.theme,
+        palette: palette ?? this.palette,
+        showDecimals: showDecimals ?? this.showDecimals,
+      );
+
+  Map<String, dynamic> toMap() =>
+      {'theme': theme.name, 'palette': palette, 'showDecimals': showDecimals};
+
+  factory UserPrefs.fromMap(Map? m) => UserPrefs(
+        theme: ThemePref.values.firstWhere((t) => t.name == m?['theme'],
+            orElse: () => ThemePref.system),
+        palette: (m?['palette'] as num?)?.toInt() ?? 0,
+        showDecimals: m?['showDecimals'] as bool? ?? true,
+      );
+}
+
+/// Qué se borra al reiniciar los datos de un hogar.
+enum WipeScope {
+  /// Gastos, ingresos y pagos. Quedan los gastos fijos y presupuestos.
+  movements,
+
+  /// Todo: también gastos fijos y presupuestos.
+  all,
+}
+
+/// Pedido de borrado de datos. Con dos personas en el hogar, una lo pide y
+/// la otra lo tiene que aceptar.
+class WipeRequest {
+  final String requestedBy;
+  final WipeScope scope;
+  final String? approvedBy;
+  const WipeRequest({required this.requestedBy, required this.scope, this.approvedBy});
+
+  bool get approved => approvedBy != null;
+
+  Map<String, dynamic> toMap() =>
+      {'requestedBy': requestedBy, 'scope': scope.name, 'approvedBy': approvedBy};
+
+  static WipeRequest? fromMap(Map? m) => m == null || m['requestedBy'] == null
+      ? null
+      : WipeRequest(
+          requestedBy: m['requestedBy'] as String,
+          scope: WipeScope.values
+              .firstWhere((x) => x.name == m['scope'], orElse: () => WipeScope.movements),
+          approvedBy: m['approvedBy'] as String?,
+        );
 }
 
 /// Qué ve tu pareja de tus gastos personales. Lo elige cada persona.
@@ -103,7 +182,38 @@ class Household {
   final String name;
   final List<Member> members;
   final String? inviteCode;
-  const Household({required this.id, required this.name, required this.members, this.inviteCode});
+
+  /// Monedas habilitadas; la primera es la principal.
+  final List<Currency> currencies;
+  final WipeRequest? wipe;
+
+  /// Plan del hogar ('free', 'premium'). Solo lo escribe el servidor.
+  final String plan;
+
+  const Household({
+    required this.id,
+    required this.name,
+    required this.members,
+    this.inviteCode,
+    this.currencies = defaultCurrencies,
+    this.wipe,
+    this.plan = 'free',
+  });
+
+  Household copyWith({
+    List<Member>? members,
+    List<Currency>? currencies,
+    WipeRequest? Function()? wipe,
+  }) =>
+      Household(
+        id: id,
+        name: name,
+        inviteCode: inviteCode,
+        plan: plan,
+        members: members ?? this.members,
+        currencies: currencies ?? this.currencies,
+        wipe: wipe != null ? wipe() : this.wipe,
+      );
 
   Member? member(String id) {
     for (final m in members) {
@@ -214,7 +324,7 @@ class Expense implements ExpenseBase {
         description: m['description'] as String? ?? '',
         category: m['category'] as String? ?? 'Otros',
         amount: (m['amount'] as num).toInt(),
-        currency: CurrencyX.parse(m['currency'] as String?),
+        currency: Currency.parse(m['currency'] as String?),
         date: DateTime.fromMillisecondsSinceEpoch((m['date'] as num).toInt()),
         paidBy: m['paidBy'] as String,
         isShared: m['isShared'] as bool? ?? true,
@@ -288,7 +398,7 @@ class RecurringExpense implements ExpenseBase {
         description: m['description'] as String? ?? '',
         category: m['category'] as String? ?? 'Otros',
         amount: (m['amount'] as num).toInt(),
-        currency: CurrencyX.parse(m['currency'] as String?),
+        currency: Currency.parse(m['currency'] as String?),
         paidBy: m['paidBy'] as String,
         isShared: m['isShared'] as bool? ?? true,
         split: _splitFrom(m['split']),
@@ -329,7 +439,7 @@ class Income {
         memberId: m['memberId'] as String,
         description: m['description'] as String? ?? 'Sueldo',
         amount: (m['amount'] as num).toInt(),
-        currency: CurrencyX.parse(m['currency'] as String?),
+        currency: Currency.parse(m['currency'] as String?),
         month: YearMonth.parse(m['month'] as String),
       );
 }
@@ -365,7 +475,7 @@ class Settlement {
         from: m['from'] as String,
         to: m['to'] as String,
         amount: (m['amount'] as num).toInt(),
-        currency: CurrencyX.parse(m['currency'] as String?),
+        currency: Currency.parse(m['currency'] as String?),
         date: DateTime.fromMillisecondsSinceEpoch((m['date'] as num).toInt()),
       );
 }
@@ -386,7 +496,7 @@ class Budget {
         id: id,
         category: m['category'] as String,
         limit: (m['limit'] as num).toInt(),
-        currency: CurrencyX.parse(m['currency'] as String?),
+        currency: Currency.parse(m['currency'] as String?),
       );
 }
 

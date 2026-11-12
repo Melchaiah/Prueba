@@ -59,12 +59,19 @@ class _AuthScreenState extends State<AuthScreen> {
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
-            child: Form(
+            child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 440), child: Form(
               key: _form,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Icon(Icons.favorite, size: 56, color: Theme.of(context).colorScheme.primary),
+                  Center(
+                    child: CircleAvatar(
+                      radius: 44,
+                      backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                      child: Icon(Icons.savings_outlined,
+                          size: 44, color: Theme.of(context).colorScheme.onPrimaryContainer),
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   Text('Gastos en Pareja', style: t.headlineMedium, textAlign: TextAlign.center),
                   const SizedBox(height: 4),
@@ -74,7 +81,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   if (_register) ...[
                     TextFormField(
                       controller: _name,
-                      decoration: const InputDecoration(labelText: 'Tu nombre', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(labelText: 'Tu nombre'),
                       textCapitalization: TextCapitalization.words,
                       validator: (v) => (v == null || v.trim().isEmpty) ? 'Ingresá tu nombre' : null,
                     ),
@@ -82,14 +89,14 @@ class _AuthScreenState extends State<AuthScreen> {
                   ],
                   TextFormField(
                     controller: _email,
-                    decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(labelText: 'Email'),
                     keyboardType: TextInputType.emailAddress,
                     validator: (v) => (v == null || !v.contains('@')) ? 'Ingresá un email válido' : null,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _password,
-                    decoration: const InputDecoration(labelText: 'Contraseña', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(labelText: 'Contraseña'),
                     obscureText: true,
                     validator: (v) => (v == null || v.length < 6) ? 'Mínimo 6 caracteres' : null,
                   ),
@@ -108,7 +115,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                 ],
               ),
-            ),
+            )),
           ),
         ),
       ),

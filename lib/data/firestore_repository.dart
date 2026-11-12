@@ -11,9 +11,10 @@ import 'repository.dart';
 /// Implementación con Firebase Auth + Cloud Firestore.
 ///
 /// Estructura:
-///   users/{uid}                         {name, householdId}
-///   invites/{codigo}                    {householdId, createdBy}
-///   households/{hid}                    {name, memberIds, members: {uid: {name, privacy}}}
+///   users/{uid}                         {name, householdId, households: {hid: nombre}, prefs}
+///   invites/{codigo}                    {householdId, householdName, createdBy}
+///   households/{hid}                    {name, memberIds, members: {uid: {name, privacy}},
+///                                        currencies, wipe, plan}
 ///   households/{hid}/expenses/{id}      Expense + {public}
 ///   households/{hid}/recurring/{id}     RecurringExpense + {public}
 ///   households/{hid}/incomes/{id}
@@ -46,12 +47,21 @@ class FirestoreRepository implements Repository {
   Stream<AppUser?> watchUser() {
     return _auth.authStateChanges().asyncExpand((u) {
       if (u == null) return Stream.value(null);
-      return _db.collection('users').doc(u.uid).snapshots().map((s) {
+      return _retry(() => _db.collection('users').doc(u.uid).snapshots()).map((s) {
         final d = s.data();
+        final current = d?['householdId'] as String?;
+        final households = <String, String>{
+          for (final e in (d?['households'] as Map? ?? {}).entries)
+            e.key as String: e.value as String? ?? '',
+        };
+        // Cuentas creadas antes de que existiera la lista de hogares.
+        if (current != null) households.putIfAbsent(current, () => '');
         return AppUser(
           id: u.uid,
           name: d?['name'] as String? ?? u.displayName ?? u.email ?? 'Yo',
-          householdId: d?['householdId'] as String?,
+          householdId: current,
+          households: households,
+          prefs: UserPrefs.fromMap(d?['prefs'] as Map?),
         );
       });
     });
@@ -90,9 +100,17 @@ class FirestoreRepository implements Repository {
           _uid: Member(id: _uid, name: await _myName()).toMap(),
         },
         'inviteCode': code,
+        'currencies': [for (final c in defaultCurrencies) c.code],
       })
-      ..set(_db.collection('invites').doc(code), {'householdId': hid, 'createdBy': _uid})
-      ..set(_db.collection('users').doc(_uid), {'householdId': hid}, SetOptions(merge: true));
+      ..set(_db.collection('invites').doc(code),
+          {'householdId': hid, 'householdName': name, 'createdBy': _uid})
+      ..set(
+          _db.collection('users').doc(_uid),
+          {
+            'householdId': hid,
+            'households': {hid: name},
+          },
+          SetOptions(merge: true));
     await batch.commit();
     return code;
   }
@@ -110,7 +128,13 @@ class FirestoreRepository implements Repository {
         'inviteCode': FieldValue.delete(),
       })
       ..delete(invite.reference)
-      ..set(_db.collection('users').doc(_uid), {'householdId': hid}, SetOptions(merge: true));
+      ..set(
+          _db.collection('users').doc(_uid),
+          {
+            'householdId': hid,
+            'households': {hid: invite.data()!['householdName'] as String? ?? ''},
+          },
+          SetOptions(merge: true));
     await batch.commit();
   }
 
@@ -122,6 +146,12 @@ class FirestoreRepository implements Repository {
       id: s.id,
       name: d['name'] as String? ?? 'Hogar',
       inviteCode: d['inviteCode'] as String?,
+      plan: d['plan'] as String? ?? 'free',
+      wipe: WipeRequest.fromMap(d['wipe'] as Map?),
+      currencies: () {
+        final list = [for (final c in d['currencies'] as List? ?? []) Currency.parse(c as String?)];
+        return list.isEmpty ? defaultCurrencies : list;
+      }(),
       members: [
         for (final id in ids)
           Member.fromMap(id, Map<String, dynamic>.from(members[id] as Map? ?? {})),
@@ -131,7 +161,7 @@ class FirestoreRepository implements Repository {
 
   @override
   Stream<Household> watchHousehold(String hid) =>
-      _household(hid).snapshots().where((s) => s.exists).map(_householdFrom);
+      _retry(() => _household(hid).snapshots()).where((s) => s.exists).map(_householdFrom);
 
   Future<Member?> _me(String hid) async =>
       _householdFrom(await _household(hid).get()).member(_uid);
@@ -160,6 +190,54 @@ class FirestoreRepository implements Repository {
     await batch.commit();
   }
 
+  @override
+  Future<void> setCurrencies(String hid, List<Currency> currencies) =>
+      _household(hid).update({
+        'currencies': [for (final c in currencies) c.code],
+      });
+
+  @override
+  Future<void> switchHousehold(String? id, {String? name}) =>
+      _db.collection('users').doc(_uid).set({
+        'householdId': id,
+        if (id != null && name != null) 'households': {id: name},
+      }, SetOptions(merge: true));
+
+  @override
+  Future<void> savePrefs(UserPrefs prefs) => _db
+      .collection('users')
+      .doc(_uid)
+      .set({'prefs': prefs.toMap()}, SetOptions(merge: true));
+
+  @override
+  Future<void> setWipe(String hid, WipeRequest? wipe) =>
+      _household(hid).update({'wipe': wipe?.toMap() ?? FieldValue.delete()});
+
+  @override
+  Future<void> wipeData(String hid, WipeScope scope) async {
+    final refs = <DocumentReference>[];
+    // Gastos: los compartidos y los propios (las reglas no dejan borrar los
+    // personales de la pareja; esos los borra su app).
+    for (final col in ['expenses', if (scope == WipeScope.all) 'recurring']) {
+      final shared = await _col(hid, col).where('isShared', isEqualTo: true)
+          .where('public', isEqualTo: true).get();
+      final mine = await _col(hid, col).where('paidBy', isEqualTo: _uid).get();
+      refs.addAll({
+        for (final d in [...shared.docs, ...mine.docs]) d.reference.path: d.reference,
+      }.values);
+    }
+    for (final col in ['incomes', 'settlements', if (scope == WipeScope.all) 'budgets']) {
+      refs.addAll((await _col(hid, col).get()).docs.map((d) => d.reference));
+    }
+    for (var i = 0; i < refs.length; i += 400) {
+      final batch = _db.batch();
+      for (final r in refs.skip(i).take(400)) {
+        batch.delete(r);
+      }
+      await batch.commit();
+    }
+  }
+
   // --- Movimientos ---
 
   /// Gastos públicos del hogar + todos los míos (incluidos los privados).
@@ -170,8 +248,8 @@ class FirestoreRepository implements Repository {
     String col,
     T Function(String id, Map<String, dynamic> m) parse,
   ) {
-    final public = _col(hid, col).where('public', isEqualTo: true).snapshots();
-    final mine = _col(hid, col).where('paidBy', isEqualTo: _uid).snapshots();
+    final public = _retry(() => _col(hid, col).where('public', isEqualTo: true).snapshots());
+    final mine = _retry(() => _col(hid, col).where('paidBy', isEqualTo: _uid).snapshots());
     return _combine(public, mine).map((pair) {
       final byId = <String, T>{};
       for (final snap in pair) {
@@ -194,8 +272,7 @@ class FirestoreRepository implements Repository {
 
   Stream<List<T>> _all<T>(String hid, String col,
           T Function(String id, Map<String, dynamic> m) parse) =>
-      _col(hid, col)
-          .snapshots()
+      _retry(() => _col(hid, col).snapshots())
           .map((s) => [for (final d in s.docs) parse(d.id, d.data())]);
 
   @override
@@ -270,6 +347,43 @@ Stream<List<T>> _combine<T>(Stream<T> a, Stream<T> b) {
     onCancel: () async {
       await sa?.cancel();
       await sb?.cancel();
+    },
+  );
+  return ctrl.stream;
+}
+
+/// Vuelve a suscribirse si el stream falla. Pasa, por ejemplo, justo al crear
+/// o unirse a un hogar: la app empieza a escuchar antes de que el servidor
+/// termine de registrar el alta, Firestore rechaza la escucha por permisos y
+/// sin reintento los datos no se actualizaban hasta reiniciar la app.
+Stream<T> _retry<T>(Stream<T> Function() make) {
+  late StreamController<T> ctrl;
+  StreamSubscription<T>? sub;
+  Timer? timer;
+  var delay = 1;
+  var closed = false;
+
+  void listen() {
+    sub = make().listen(
+      (v) {
+        delay = 1;
+        ctrl.add(v);
+      },
+      onError: (Object e) {
+        sub?.cancel();
+        if (closed) return;
+        timer = Timer(Duration(seconds: delay), listen);
+        delay = min(delay * 2, 30);
+      },
+    );
+  }
+
+  ctrl = StreamController<T>(
+    onListen: listen,
+    onCancel: () async {
+      closed = true;
+      timer?.cancel();
+      await sub?.cancel();
     },
   );
   return ctrl.stream;

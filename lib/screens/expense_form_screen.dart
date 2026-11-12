@@ -4,7 +4,7 @@ import '../app_state.dart';
 import '../logic/finance.dart';
 import '../logic/money.dart';
 import '../models/models.dart';
-import 'dialogs.dart';
+import '../widgets/common.dart';
 
 /// Abre el formulario para crear un gasto o editar uno existente
 /// ([Expense] o [RecurringExpense]).
@@ -41,7 +41,7 @@ class _ExpenseFormScreenState extends State<ExpenseFormScreen> {
   bool _initialized = false;
 
   bool _shared = true;
-  Currency _currency = Currency.ars;
+  late Currency _currency;
   String _category = defaultCategories.first;
   late String _paidBy;
   _SplitPreset _preset = _SplitPreset.income;
@@ -66,6 +66,7 @@ class _ExpenseFormScreenState extends State<ExpenseFormScreen> {
     final e = widget.existing;
     _desc = TextEditingController(text: e?.description ?? '');
     _paidBy = e?.paidBy ?? s.me;
+    _currency = e?.currency ?? s.mainCurrency;
     _date = _expense?.date ?? DateTime.now();
     _firstInstallment = _expense?.firstInstallment ?? s.month;
     _day = _recurring?.dayOfMonth ?? DateTime.now().day.clamp(1, 28);
@@ -216,55 +217,55 @@ class _ExpenseFormScreenState extends State<ExpenseFormScreen> {
         actions: [
           if (editing)
             IconButton(icon: const Icon(Icons.delete_outline), tooltip: 'Borrar', onPressed: _delete),
-          TextButton(onPressed: _save, child: const Text('Guardar')),
+          Padding(
+            padding: const EdgeInsets.only(right: 12, left: 4),
+            child: FilledButton(
+              style: FilledButton.styleFrom(minimumSize: const Size(64, 48)),
+              onPressed: _save,
+              child: const Text('Guardar'),
+            ),
+          ),
         ],
       ),
       body: Form(
         key: _form,
-        child: ListView(
+        child: ContentWidth(child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
             SegmentedButton<bool>(
               segments: const [
-                ButtonSegment(value: true, label: Text('Compartido'), icon: Icon(Icons.people)),
-                ButtonSegment(value: false, label: Text('Personal'), icon: Icon(Icons.person)),
+                ButtonSegment(value: true, label: Text('Compartido'), icon: Icon(Icons.people_outline)),
+                ButtonSegment(value: false, label: Text('Personal'), icon: Icon(Icons.person_outline)),
               ],
               selected: {_shared},
               onSelectionChanged: (v) => setState(() => _shared = v.first),
             ),
             const SizedBox(height: 16),
-            TextFormField(
+            AmountField(
               controller: _amount,
+              currency: _currency,
               autofocus: !editing,
-              style: t.headlineSmall,
-              decoration: InputDecoration(
-                labelText: _freq == _Frequency.installments
-                    ? 'Monto total (de todas las cuotas)'
-                    : _freq == _Frequency.monthly
-                        ? 'Monto por mes'
-                        : 'Monto',
-                prefixText: '${_currency.symbol} ',
-                border: const OutlineInputBorder(),
-              ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: validateAmount,
+              large: true,
+              label: _freq == _Frequency.installments
+                  ? 'Monto total (de todas las cuotas)'
+                  : _freq == _Frequency.monthly
+                      ? 'Monto por mes'
+                      : 'Monto',
               onChanged: (_) => setState(() {}),
             ),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: CurrencyPicker(value: _currency, onChanged: (v) => setState(() => _currency = v)),
-            ),
+            const SizedBox(height: 12),
+            CurrencyPicker(value: _currency, onChanged: (v) => setState(() => _currency = v)),
             const SizedBox(height: 16),
             TextFormField(
               controller: _desc,
-              decoration: const InputDecoration(labelText: 'Descripción (opcional)', border: OutlineInputBorder()),
+              decoration: const InputDecoration(labelText: 'Descripción (opcional)'),
               textCapitalization: TextCapitalization.sentences,
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               initialValue: _category,
-              decoration: const InputDecoration(labelText: 'Categoría', border: OutlineInputBorder()),
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Categoría'),
               items: [for (final c in defaultCategories) DropdownMenuItem(value: c, child: Text(c))],
               onChanged: (v) => setState(() => _category = v!),
             ),
@@ -272,7 +273,7 @@ class _ExpenseFormScreenState extends State<ExpenseFormScreen> {
               const SizedBox(height: 20),
               Text('¿Quién pagó?', style: t.titleSmall),
               const SizedBox(height: 8),
-              MemberPicker(state: s, value: _paidBy, onChanged: (v) => setState(() => _paidBy = v)),
+              MemberPicker(value: _paidBy, onChanged: (v) => setState(() => _paidBy = v)),
               const SizedBox(height: 20),
               Text('¿Cómo se reparte?', style: t.titleSmall),
               const SizedBox(height: 8),
@@ -284,6 +285,7 @@ class _ExpenseFormScreenState extends State<ExpenseFormScreen> {
             Text('Frecuencia', style: t.titleSmall),
             const SizedBox(height: 8),
             SegmentedButton<_Frequency>(
+              showSelectedIcon: false,
               segments: [
                 ButtonSegment(value: _Frequency.once, label: const Text('Único'), enabled: _recurring == null),
                 ButtonSegment(value: _Frequency.installments, label: const Text('En cuotas'), enabled: _recurring == null),
@@ -305,7 +307,7 @@ class _ExpenseFormScreenState extends State<ExpenseFormScreen> {
             ],
             const SizedBox(height: 32),
           ],
-        ),
+        )),
       ),
     );
   }

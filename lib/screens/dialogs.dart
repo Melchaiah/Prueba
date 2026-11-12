@@ -4,42 +4,7 @@ import '../app_state.dart';
 import '../logic/finance.dart';
 import '../logic/money.dart';
 import '../models/models.dart';
-
-String? validateAmount(String? v) =>
-    (parseMoney(v ?? '') ?? 0) <= 0 ? 'Ingresá un monto válido' : null;
-
-class CurrencyPicker extends StatelessWidget {
-  const CurrencyPicker({super.key, required this.value, required this.onChanged});
-  final Currency value;
-  final ValueChanged<Currency> onChanged;
-
-  @override
-  Widget build(BuildContext context) => SegmentedButton<Currency>(
-        segments: const [
-          ButtonSegment(value: Currency.ars, label: Text('ARS')),
-          ButtonSegment(value: Currency.usd, label: Text('USD')),
-        ],
-        selected: {value},
-        onSelectionChanged: (s) => onChanged(s.first),
-      );
-}
-
-class MemberPicker extends StatelessWidget {
-  const MemberPicker({super.key, required this.state, required this.value, required this.onChanged});
-  final HouseholdState state;
-  final String value;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) => SegmentedButton<String>(
-        segments: [
-          for (final id in state.memberIds)
-            ButtonSegment(value: id, label: Text(state.nameOf(id))),
-        ],
-        selected: {value},
-        onSelectionChanged: (s) => onChanged(s.first),
-      );
-}
+import '../widgets/common.dart';
 
 /// Carga (o edita) un ingreso del mes seleccionado.
 Future<void> showIncomeDialog(BuildContext context, {Income? existing}) {
@@ -49,26 +14,28 @@ Future<void> showIncomeDialog(BuildContext context, {Income? existing}) {
   final amount = TextEditingController(
       text: existing == null ? '' : moneyToInput(existing.amount));
   var member = existing?.memberId ?? s.me;
-  var currency = existing?.currency ?? Currency.ars;
+  var currency = existing?.currency ?? s.mainCurrency;
 
   return showDialog(
     context: context,
-    builder: (ctx) => StatefulBuilder(
+    builder: (ctx) => HouseholdScope(
+      state: s,
+      child: StatefulBuilder(
       builder: (ctx, setState) => AlertDialog(
         title: Text('${existing == null ? 'Nuevo' : 'Editar'} ingreso · ${monthLabel(existing?.month ?? s.month)}'),
         content: Form(
           key: form,
           child: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              MemberPicker(state: s, value: member, onChanged: (v) => setState(() => member = v)),
+              MemberPicker(value: member, onChanged: (v) => setState(() => member = v)),
               const SizedBox(height: 12),
-              TextFormField(controller: desc, decoration: const InputDecoration(labelText: 'Concepto')),
               TextFormField(
-                controller: amount,
-                decoration: const InputDecoration(labelText: 'Monto'),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                validator: validateAmount,
+                controller: desc,
+                decoration: const InputDecoration(labelText: 'Concepto'),
+                textCapitalization: TextCapitalization.sentences,
               ),
+              const SizedBox(height: 12),
+              AmountField(controller: amount, currency: currency, autofocus: existing == null),
               const SizedBox(height: 12),
               CurrencyPicker(value: currency, onChanged: (v) => setState(() => currency = v)),
             ]),
@@ -104,7 +71,7 @@ Future<void> showIncomeDialog(BuildContext context, {Income? existing}) {
           ),
         ],
       ),
-    ),
+    )),
   );
 }
 
@@ -121,12 +88,8 @@ Future<void> showSettlementDialog(BuildContext context, Debt debt, Currency curr
         key: form,
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Text('${s.nameOf(debt.from)} le paga a ${s.nameOf(debt.to)}'),
-          TextFormField(
-            controller: amount,
-            decoration: InputDecoration(labelText: 'Monto (${currency.code})'),
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            validator: validateAmount,
-          ),
+          const SizedBox(height: 12),
+          AmountField(controller: amount, currency: currency),
         ]),
       ),
       actions: [
@@ -169,11 +132,13 @@ Future<void> showBudgetDialog(BuildContext context, {Budget? existing}) {
     return Future.value();
   }
   var category = existing?.category ?? options.first;
-  var currency = existing?.currency ?? Currency.ars;
+  var currency = existing?.currency ?? s.mainCurrency;
   final limit = TextEditingController(text: existing == null ? '' : moneyToInput(existing.limit));
   return showDialog(
     context: context,
-    builder: (ctx) => StatefulBuilder(
+    builder: (ctx) => HouseholdScope(
+      state: s,
+      child: StatefulBuilder(
       builder: (ctx, setState) => AlertDialog(
         title: Text(existing == null ? 'Nuevo presupuesto' : 'Editar presupuesto'),
         content: Form(
@@ -181,16 +146,13 @@ Future<void> showBudgetDialog(BuildContext context, {Budget? existing}) {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             DropdownButtonFormField<String>(
               initialValue: category,
+              isExpanded: true,
               decoration: const InputDecoration(labelText: 'Categoría'),
               items: [for (final c in options) DropdownMenuItem(value: c, child: Text(c))],
               onChanged: existing != null ? null : (v) => setState(() => category = v!),
             ),
-            TextFormField(
-              controller: limit,
-              decoration: const InputDecoration(labelText: 'Tope mensual (compartido)'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: validateAmount,
-            ),
+            const SizedBox(height: 12),
+            AmountField(controller: limit, currency: currency, label: 'Tope mensual (compartido)'),
             const SizedBox(height: 12),
             CurrencyPicker(value: currency, onChanged: (v) => setState(() => currency = v)),
           ]),
@@ -223,6 +185,6 @@ Future<void> showBudgetDialog(BuildContext context, {Budget? existing}) {
           ),
         ],
       ),
-    ),
+    )),
   );
 }

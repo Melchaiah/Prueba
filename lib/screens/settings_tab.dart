@@ -1,8 +1,13 @@
-import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
+import '../logic/money.dart';
 import '../models/models.dart';
+import '../theme.dart';
+import '../widgets/common.dart';
+import 'household_setup_screen.dart';
+import 'summary_tab.dart' show WipeBanner;
 
 class SettingsTab extends StatelessWidget {
   const SettingsTab({super.key});
@@ -12,40 +17,50 @@ class SettingsTab extends StatelessWidget {
     final s = HouseholdScope.of(context);
     final scope = RepoScope.of(context);
     final h = s.household;
-    final t = Theme.of(context).textTheme;
     if (h == null) return const Center(child: CircularProgressIndicator());
+    final t = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final user = scope.user ?? s.user;
+    final prefs = user.prefs;
     final me = h.member(s.me);
     final partner = s.partner;
+    final others = user.households.entries.where((e) => e.key != h.id).toList();
+
+    void savePrefs(UserPrefs p) => guard(context, s.repo.savePrefs(p));
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 32),
       children: [
         if (scope.demo)
-          Card(
-            margin: const EdgeInsets.all(12),
-            color: Theme.of(context).colorScheme.tertiaryContainer,
-            child: const Padding(
-              padding: EdgeInsets.all(12),
-              child: Text(
-                'Modo demo: los datos son de ejemplo y se guardan solo en memoria. '
-                'Para usar la app de verdad hay que configurar Firebase (ver README). '
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: SectionCard(color: scheme.tertiaryContainer, children: [
+              Text(
+                'Modo demo: los datos son de ejemplo y se pierden al cerrar. '
                 'Con el botón de arriba podés ver la app como tu pareja.',
+                style: TextStyle(color: scheme.onTertiaryContainer),
               ),
-            ),
+            ]),
           ),
+        if (h.wipe != null)
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: WipeBanner(s)),
+
+        // ---------------------------------------------------------- Hogar
+        const SectionHeader('Hogar'),
         ListTile(
-          leading: const Icon(Icons.home),
+          leading: const Icon(Icons.home_outlined),
           title: Text(h.name),
-          subtitle: Text(h.members.map((m) => m.id == s.me ? '${m.name} (vos)' : m.name).join(' y ')),
+          subtitle:
+              Text(h.members.map((m) => m.id == s.me ? '${m.name} (vos)' : m.name).join(' y ')),
         ),
         if (partner == null && h.inviteCode != null)
           ListTile(
-            leading: const Icon(Icons.group_add),
+            leading: const Icon(Icons.group_add_outlined),
             title: const Text('Código para invitar a tu pareja'),
             subtitle: Text(h.inviteCode!, style: t.headlineSmall?.copyWith(letterSpacing: 4)),
             trailing: IconButton(
               icon: const Icon(Icons.copy),
-              tooltip: 'Copiar',
+              tooltip: 'Copiar código',
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: h.inviteCode!));
                 ScaffoldMessenger.of(context)
@@ -53,22 +68,161 @@ class SettingsTab extends StatelessWidget {
               },
             ),
           ),
-        const Divider(),
+        for (final e in others)
+          ListTile(
+            leading: const Icon(Icons.swap_horiz),
+            title: Text(e.value.isEmpty ? 'Otro hogar' : e.value),
+            subtitle: const Text('Tocá para cambiar a este hogar'),
+            onTap: () => guard(context, s.repo.switchHousehold(e.key)),
+          ),
+        ListTile(
+          leading: const Icon(Icons.add_home_outlined),
+          title: const Text('Crear o unirme a otro hogar'),
+          subtitle: const Text('Para llevar por separado los gastos de otra casa o grupo'),
+          onTap: () {
+            if (user.households.length >= s.entitlements.maxHouseholds) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text(
+                      'Llegaste al máximo de ${s.entitlements.maxHouseholds} hogares.')));
+              return;
+            }
+            Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => HouseholdSetupScreen(user: user, pushed: true),
+            ));
+          },
+        ),
+
+        // ----------------------------------------------------- Apariencia
+        const SectionHeader('Apariencia'),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-          child: Text('Privacidad de tus gastos personales', style: t.titleMedium),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          child: SegmentedButton<ThemePref>(
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(value: ThemePref.system, label: Text('Sistema')),
+              ButtonSegment(value: ThemePref.light, label: Text('Claro')),
+              ButtonSegment(value: ThemePref.dark, label: Text('Oscuro')),
+            ],
+            selected: {prefs.theme},
+            onSelectionChanged: (v) => savePrefs(prefs.copyWith(theme: v.first)),
+          ),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+          child: Text(
+            prefs.theme == ThemePref.system
+                ? 'Usa el modo claro u oscuro que tenga configurado el celular.'
+                : 'Se mantiene fijo aunque cambie la configuración del celular.',
+            style: t.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: Wrap(
+            children: [
+              for (var i = 0; i < palettes.length; i++)
+                Tooltip(
+                  message: 'Color ${palettes[i].$1}',
+                  child: Semantics(
+                    button: true,
+                    selected: prefs.palette == i,
+                    label: 'Color ${palettes[i].$1}',
+                    child: InkResponse(
+                      radius: 28,
+                      onTap: () => savePrefs(prefs.copyWith(palette: i)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: palettes[i].$2,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: prefs.palette == i ? scheme.onSurface : Colors.transparent,
+                              width: 3,
+                            ),
+                          ),
+                          child: prefs.palette == i
+                              ? const Icon(Icons.check, color: Colors.white)
+                              : null,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+
+        // ------------------------------------------------ Moneda y formato
+        const SectionHeader('Moneda y formato'),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          child: DropdownButtonFormField<Currency>(
+            key: ValueKey(s.mainCurrency),
+            initialValue: s.mainCurrency,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Moneda principal del hogar'),
+            items: [
+              for (final c in Currency.values)
+                DropdownMenuItem(value: c, child: Text('${c.label} (${c.symbol})')),
+            ],
+            onChanged: (c) {
+              if (c == null || c == s.mainCurrency) return;
+              guard(context,
+                  s.repo.setCurrencies(s.hid, [c, ...s.currencies.where((x) => x != c)]));
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+          child: Text('Otras monedas que usan', style: t.bodyMedium),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Wrap(
+            spacing: 8,
+            children: [
+              for (final c in Currency.values)
+                if (c != s.mainCurrency)
+                  FilterChip(
+                    label: Text(c.code),
+                    tooltip: c.label,
+                    selected: s.currencies.contains(c),
+                    onSelected: (on) => guard(
+                      context,
+                      s.repo.setCurrencies(s.hid, [
+                        for (final x in s.currencies)
+                          if (x != c) x,
+                        if (on) c,
+                      ]),
+                    ),
+                  ),
+            ],
+          ),
+        ),
+        SwitchListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+          title: const Text('Mostrar centavos'),
+          subtitle: Text('Ejemplo: ${formatMoney(20000050, s.mainCurrency)}'),
+          value: prefs.showDecimals,
+          onChanged: (v) => savePrefs(prefs.copyWith(showDecimals: v)),
+        ),
+
+        // ------------------------------------------------------ Privacidad
+        const SectionHeader('Privacidad de tus gastos personales'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
           child: Text(
             'Los gastos compartidos siempre los ven los dos. '
             'Elegí qué puede ver ${partner?.name ?? 'tu pareja'} de tus gastos personales:',
-            style: t.bodyMedium,
+            style: t.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
           ),
         ),
         RadioGroup<PrivacyMode>(
           groupValue: me?.privacy ?? PrivacyMode.allVisible,
-          onChanged: (v) => s.repo.setPrivacy(s.hid, v!),
+          onChanged: (v) => guard(context, s.repo.setPrivacy(s.hid, v!)),
           child: Column(children: [
             for (final mode in PrivacyMode.values)
               RadioListTile<PrivacyMode>(
@@ -88,13 +242,107 @@ class SettingsTab extends StatelessWidget {
               PrivacyMode.perExpense => 'Ves solo los gastos personales que marcó como visibles.',
             }),
           ),
-        const Divider(),
+
+        // ------------------------------------------------------------ Plan
+        const SectionHeader('Plan'),
+        ListTile(
+          leading: const Icon(Icons.workspace_premium_outlined),
+          title: Text('Plan ${s.entitlements.planLabel}'),
+          subtitle: const Text('Incluye todas las funciones de la app.'),
+        ),
+
+        // ----------------------------------------------------------- Datos
+        const SectionHeader('Datos del hogar'),
+        ListTile(
+          leading: Icon(Icons.delete_sweep_outlined, color: scheme.error),
+          title: const Text('Borrar datos y empezar de cero'),
+          subtitle: Text(partner == null
+              ? 'Útil si estuviste probando la app.'
+              : 'Útil si estuvieron probando la app. ${partner.name} lo tiene que aceptar.'),
+          enabled: h.wipe == null,
+          onTap: () => _confirmWipe(context, s),
+        ),
+
+        // ---------------------------------------------------------- Cuenta
+        const SectionHeader('Cuenta'),
         ListTile(
           leading: const Icon(Icons.logout),
           title: const Text('Cerrar sesión'),
+          subtitle: Text(user.name),
           onTap: s.repo.signOut,
         ),
       ],
     );
+  }
+}
+
+Future<void> _confirmWipe(BuildContext context, HouseholdState s) async {
+  var scope = WipeScope.movements;
+  final partner = s.partner;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setState) => AlertDialog(
+        icon: Icon(Icons.delete_sweep_outlined, color: Theme.of(ctx).colorScheme.error),
+        title: const Text('Borrar datos del hogar'),
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            RadioGroup<WipeScope>(
+              groupValue: scope,
+              onChanged: (v) => setState(() => scope = v!),
+              child: const Column(children: [
+                RadioListTile<WipeScope>(
+                  contentPadding: EdgeInsets.zero,
+                  value: WipeScope.movements,
+                  title: Text('Solo movimientos'),
+                  subtitle: Text(
+                      'Gastos, cuotas, ingresos y pagos. Quedan los gastos fijos y los presupuestos.'),
+                ),
+                RadioListTile<WipeScope>(
+                  contentPadding: EdgeInsets.zero,
+                  value: WipeScope.all,
+                  title: Text('Todo'),
+                  subtitle: Text('También los gastos fijos y los presupuestos.'),
+                ),
+              ]),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              partner == null
+                  ? 'Se borra ahora y no se puede deshacer.'
+                  : 'No se borra nada hasta que ${partner.name} lo acepte desde su celular. '
+                      'Después no se puede deshacer.',
+            ),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+              foregroundColor: Theme.of(ctx).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(partner == null ? 'Borrar' : 'Pedir borrado'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (ok != true) return;
+  try {
+    await s.requestWipe(scope);
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('No se pudo enviar el pedido. Revisá la conexión y probá de nuevo.')));
+    }
+    return;
+  }
+  if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(partner == null
+            ? 'Datos borrados.'
+            : 'Pedido enviado. Falta que ${partner.name} lo acepte.')));
   }
 }

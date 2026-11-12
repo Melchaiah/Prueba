@@ -16,6 +16,16 @@ class MemoryRepository implements Repository {
   final _changes = StreamController<void>.broadcast();
 
   AppUser? _user;
+  final Map<String, Map<String, String>> _userHouseholds = {};
+  final Map<String, UserPrefs> _prefs = {};
+
+  AppUser _mk(String id, String name, String? hid) => AppUser(
+        id: id,
+        name: name,
+        householdId: hid,
+        households: Map.of(_userHouseholds[id] ?? const {}),
+        prefs: _prefs[id] ?? const UserPrefs(),
+      );
   final Map<String, Household> _households = {};
   final Map<String, String> _invites = {}; // código -> householdId
   final Map<String, Map<String, Expense>> _expenses = {};
@@ -25,11 +35,18 @@ class MemoryRepository implements Repository {
   final Map<String, Map<String, Budget>> _budgets = {};
 
   /// Emite el valor actual y lo vuelve a emitir con cada cambio.
-  Stream<T> _watch<T>(T Function() read) async* {
-    yield read();
-    await for (final _ in _changes.stream) {
-      yield read();
-    }
+  Stream<T> _watch<T>(T Function() read) {
+    late StreamController<T> ctrl;
+    StreamSubscription<void>? sub;
+    ctrl = StreamController<T>(
+      onListen: () {
+        // Primero se suscribe, así no se pierde ningún cambio.
+        sub = _changes.stream.listen((_) => ctrl.add(read()));
+        ctrl.add(read());
+      },
+      onCancel: () => sub?.cancel(),
+    );
+    return ctrl.stream;
   }
 
   void _notify() => _changes.add(null);
@@ -44,13 +61,13 @@ class MemoryRepository implements Repository {
 
   @override
   Future<void> signIn(String email, String password) async {
-    _user = AppUser(id: newId(), name: email.split('@').first);
+    _user = _mk(newId(), email.split('@').first, null);
     _notify();
   }
 
   @override
   Future<void> register(String name, String email, String password) async {
-    _user = AppUser(id: newId(), name: name);
+    _user = _mk(newId(), name, null);
     _notify();
   }
 
@@ -66,7 +83,7 @@ class MemoryRepository implements Repository {
     if (u?.householdId == null) return;
     final partner = _households[u!.householdId]!.partnerOf(u.id);
     if (partner == null) return;
-    _user = AppUser(id: partner.id, name: partner.name, householdId: u.householdId);
+    _user = _mk(partner.id, partner.name, u.householdId);
     _notify();
   }
 
@@ -83,7 +100,8 @@ class MemoryRepository implements Repository {
       inviteCode: code,
     );
     _invites[code] = id;
-    _user = AppUser(id: u.id, name: u.name, householdId: id);
+    _userHouseholds.putIfAbsent(u.id, () => {})[id] = name;
+    _user = _mk(u.id, u.name, id);
     _notify();
     return code;
   }
@@ -99,8 +117,10 @@ class MemoryRepository implements Repository {
       id: id,
       name: h.name,
       members: [...h.members, Member(id: u.id, name: u.name)],
+      currencies: h.currencies,
     );
-    _user = AppUser(id: u.id, name: u.name, householdId: id);
+    _userHouseholds.putIfAbsent(u.id, () => {})[id] = h.name;
+    _user = _mk(u.id, u.name, id);
     _notify();
   }
 
@@ -111,14 +131,51 @@ class MemoryRepository implements Repository {
   @override
   Future<void> setPrivacy(String householdId, PrivacyMode mode) async {
     final h = _households[householdId]!;
-    _households[householdId] = Household(
-      id: h.id,
-      name: h.name,
-      inviteCode: h.inviteCode,
-      members: [
-        for (final m in h.members) m.id == _user!.id ? m.copyWith(privacy: mode) : m,
-      ],
-    );
+    _households[householdId] = h.copyWith(members: [
+      for (final m in h.members) m.id == _user!.id ? m.copyWith(privacy: mode) : m,
+    ]);
+    _notify();
+  }
+
+  @override
+  Future<void> setCurrencies(String householdId, List<Currency> currencies) async {
+    _households[householdId] = _households[householdId]!.copyWith(currencies: currencies);
+    _notify();
+  }
+
+  @override
+  Future<void> switchHousehold(String? id, {String? name}) async {
+    final u = _user!;
+    if (id != null && name != null) _userHouseholds.putIfAbsent(u.id, () => {})[id] = name;
+    _user = _mk(u.id, u.name, id);
+    _notify();
+  }
+
+  @override
+  Future<void> savePrefs(UserPrefs prefs) async {
+    final u = _user!;
+    _prefs[u.id] = prefs;
+    _user = _mk(u.id, u.name, u.householdId);
+    _notify();
+  }
+
+  @override
+  Future<void> setWipe(String householdId, WipeRequest? wipe) async {
+    _households[householdId] = _households[householdId]!.copyWith(wipe: () => wipe);
+    _notify();
+  }
+
+  @override
+  Future<void> wipeData(String hid, WipeScope scope) async {
+    final me = _user!.id;
+    bool mine(ExpenseBase e) => e.isShared || e.paidBy == me;
+    _expenses[hid]?.removeWhere((_, e) => mine(e));
+    _incomes[hid]?.clear();
+    _settlements[hid]?.clear();
+    if (scope == WipeScope.all) {
+      _recurring[hid]?.removeWhere((_, e) => mine(e));
+      _budgets[hid]?.clear();
+    }
     _notify();
   }
 
@@ -187,7 +244,9 @@ class MemoryRepository implements Repository {
     const a = 'ana', b = 'juan';
     final now = YearMonth.now();
     final today = DateTime.now();
-    _user = const AppUser(id: a, name: 'Ana', householdId: hid);
+    _userHouseholds[a] = {hid: 'Casa'};
+    _userHouseholds[b] = {hid: 'Casa'};
+    _user = _mk(a, 'Ana', hid);
     _households[hid] = const Household(id: hid, name: 'Casa', members: [
       Member(id: a, name: 'Ana'),
       Member(id: b, name: 'Juan', privacy: PrivacyMode.perExpense),

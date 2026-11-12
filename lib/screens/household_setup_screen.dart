@@ -2,11 +2,15 @@ import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
 import '../data/repository.dart';
+import '../widgets/common.dart';
 
 /// Primer paso después de registrarse: crear el hogar o unirse al de la pareja.
 class HouseholdSetupScreen extends StatefulWidget {
-  const HouseholdSetupScreen({super.key, required this.user});
+  const HouseholdSetupScreen({super.key, required this.user, this.pushed = false});
   final AppUser user;
+
+  /// true cuando se abre desde Ajustes para sumar otro hogar.
+  final bool pushed;
 
   @override
   State<HouseholdSetupScreen> createState() => _HouseholdSetupScreenState();
@@ -14,6 +18,12 @@ class HouseholdSetupScreen extends StatefulWidget {
 
 class _HouseholdSetupScreenState extends State<HouseholdSetupScreen> {
   final _name = TextEditingController(text: 'Nuestra casa');
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.pushed) _name.text = '';
+  }
   final _code = TextEditingController();
   bool _busy = false;
   String? _error;
@@ -25,6 +35,8 @@ class _HouseholdSetupScreenState extends State<HouseholdSetupScreen> {
     });
     try {
       await f();
+      // Al sumar otro hogar desde Ajustes, vuelve a la app (ya en el nuevo).
+      if (mounted && widget.pushed) Navigator.of(context).popUntil((r) => r.isFirst);
     } catch (e) {
       setState(() => _error = e is StateError ? e.message : '$e');
     } finally {
@@ -38,12 +50,14 @@ class _HouseholdSetupScreenState extends State<HouseholdSetupScreen> {
     final t = Theme.of(context).textTheme;
     return Scaffold(
       appBar: AppBar(
-        title: Text('Hola, ${widget.user.name}'),
+        title: Text(widget.pushed ? 'Otro hogar' : 'Hola, ${widget.user.name}'),
         actions: [
-          IconButton(icon: const Icon(Icons.logout), tooltip: 'Salir', onPressed: repo.signOut),
+          if (!widget.pushed)
+            IconButton(
+                icon: const Icon(Icons.logout), tooltip: 'Cerrar sesión', onPressed: repo.signOut),
         ],
       ),
-      body: ListView(
+      body: ContentWidth(child: ListView(
         padding: const EdgeInsets.all(24),
         children: [
           Text('Crear un hogar nuevo', style: t.titleLarge),
@@ -52,13 +66,16 @@ class _HouseholdSetupScreenState extends State<HouseholdSetupScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: _name,
-            decoration: const InputDecoration(labelText: 'Nombre del hogar', border: OutlineInputBorder()),
+            decoration: const InputDecoration(labelText: 'Nombre del hogar'),
           ),
           const SizedBox(height: 12),
           FilledButton.icon(
             icon: const Icon(Icons.home),
             label: const Text('Crear hogar'),
-            onPressed: _busy ? null : () => _run(() => repo.createHousehold(_name.text.trim())),
+            onPressed: _busy
+                ? null
+                : () => _run(() => repo.createHousehold(
+                    _name.text.trim().isEmpty ? 'Nuestra casa' : _name.text.trim())),
           ),
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 24),
@@ -75,7 +92,7 @@ class _HouseholdSetupScreenState extends State<HouseholdSetupScreen> {
           TextField(
             controller: _code,
             textCapitalization: TextCapitalization.characters,
-            decoration: const InputDecoration(labelText: 'Código de invitación', border: OutlineInputBorder()),
+            decoration: const InputDecoration(labelText: 'Código de invitación'),
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
@@ -88,7 +105,7 @@ class _HouseholdSetupScreenState extends State<HouseholdSetupScreen> {
             Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
           ],
         ],
-      ),
+      )),
     );
   }
 }

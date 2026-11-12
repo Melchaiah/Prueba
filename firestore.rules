@@ -36,13 +36,17 @@ service cloud.firestore {
     match /households/{hid} {
       allow read: if signedIn() && request.auth.uid in resource.data.memberIds;
 
+      // El plan (gratis/pago) nunca lo escribe la app: solo un servidor.
       allow create: if signedIn()
-        && request.resource.data.memberIds == [request.auth.uid];
+        && request.resource.data.memberIds == [request.auth.uid]
+        && !('plan' in request.resource.data);
 
-      // Un miembro puede cambiar el nombre del hogar y SU configuración.
+      // Un miembro puede cambiar el nombre del hogar, las monedas, el pedido
+      // de borrado de datos y SU configuración.
       allow update: if signedIn() && request.auth.uid in resource.data.memberIds
         && request.resource.data.memberIds == resource.data.memberIds
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'members'])
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['name', 'members', 'currencies', 'wipe'])
         && request.resource.data.members.diff(resource.data.members).affectedKeys()
              .hasOnly([request.auth.uid]);
 

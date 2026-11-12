@@ -6,7 +6,7 @@ import '../logic/money.dart';
 import '../models/models.dart';
 import 'dialogs.dart';
 import 'expense_form_screen.dart';
-import 'movements_tab.dart' show categoryIcon;
+import '../widgets/common.dart';
 
 class PlanningTab extends StatelessWidget {
   const PlanningTab({super.key});
@@ -31,12 +31,12 @@ class PlanningTab extends StatelessWidget {
       pendingTotals[e.currency] = (pendingTotals[e.currency] ?? 0) + rest;
     }
 
-    return ListView(
+    return ContentWidth(child: ListView(
       padding: const EdgeInsets.only(bottom: 32),
       children: [
-        _Header(
+        SectionHeader(
           'Gastos fijos mensuales',
-          TextButton.icon(
+          action: TextButton.icon(
             icon: const Icon(Icons.add),
             label: const Text('Agregar'),
             onPressed: () => openExpenseForm(context),
@@ -46,12 +46,12 @@ class PlanningTab extends StatelessWidget {
           const _Empty('Alquiler, servicios, suscripciones… Cargalos una vez y se repiten solos.'),
         for (final r in active)
           ListTile(
-            leading: CircleAvatar(child: Icon(categoryIcon(r.category), size: 20)),
+            leading: CategoryAvatar(r.category, personal: !r.isShared),
             title: Text(r.description),
             subtitle: Text('Día ${r.dayOfMonth} · Paga ${s.nameOf(r.paidBy)}'
                 '${r.isShared ? '' : ' · Personal'}'
                 '${r.end != null ? ' · hasta ${monthLabel(r.end!)}' : ''}'),
-            trailing: Text(formatMoney(r.amount, r.currency)),
+            trailing: TrailingAmount(formatMoney(r.amount, r.currency)),
             onTap: () => openExpenseForm(context, existing: r),
           ),
         if (active.isNotEmpty) _totals(context, {
@@ -66,28 +66,26 @@ class PlanningTab extends StatelessWidget {
                 ListTile(
                   title: Text(r.description),
                   subtitle: Text('${monthLabel(r.start)} – ${monthLabel(r.end!)}'),
-                  trailing: Text(formatMoney(r.amount, r.currency)),
+                  trailing: TrailingAmount(formatMoney(r.amount, r.currency)),
                   onTap: () => openExpenseForm(context, existing: r),
                 ),
             ],
           ),
-        const Divider(),
-        const _Header('Cuotas pendientes', null),
+        const SectionHeader('Cuotas pendientes'),
         if (pending.isEmpty) const _Empty('No hay compras en cuotas pendientes.'),
         for (final e in pending)
           ListTile(
-            leading: CircleAvatar(child: Icon(categoryIcon(e.category), size: 20)),
+            leading: CategoryAvatar(e.category, personal: !e.isShared),
             title: Text(e.description),
             subtitle: Text(
                 'Cuota ${now.monthsSince(e.firstInstallment) + 1}/${e.installments} · termina en ${monthLabel(e.lastInstallment)}'),
-            trailing: Text('${formatMoney(installmentAmount(e.amount, e.installments, 2), e.currency)}/mes'),
+            trailing: TrailingAmount('${formatMoney(installmentAmount(e.amount, e.installments, 2), e.currency)}/mes'),
             onTap: () => openExpenseForm(context, existing: e),
           ),
         if (pending.isNotEmpty) _totals(context, pendingTotals, 'Falta pagar (próximos meses)'),
-        const Divider(),
-        _Header(
+        SectionHeader(
           'Presupuestos mensuales',
-          TextButton.icon(
+          action: TextButton.icon(
             icon: const Icon(Icons.add),
             label: const Text('Agregar'),
             onPressed: () => showBudgetDialog(context),
@@ -97,18 +95,18 @@ class PlanningTab extends StatelessWidget {
           const _Empty('Poné un tope por categoría (ej. Salidas) y te avisamos al llegar al 80%.'),
         for (final b in s.budgets)
           ListTile(
-            leading: CircleAvatar(child: Icon(categoryIcon(b.category), size: 20)),
+            leading: CategoryAvatar(b.category),
             title: Text(b.category),
             subtitle: const Text('Tope de gasto compartido'),
-            trailing: Text(formatMoney(b.limit, b.currency, compact: true)),
+            trailing: TrailingAmount(formatMoney(b.limit, b.currency, compact: true)),
             onTap: () => showBudgetDialog(context, existing: b),
           ),
       ],
-    );
+    ));
   }
 
   Widget _totals(BuildContext context, Map<Currency, int> totals, String label) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         child: Row(children: [
           Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold))),
           const SizedBox(width: 8),
@@ -124,28 +122,17 @@ class PlanningTab extends StatelessWidget {
       );
 }
 
-class _Header extends StatelessWidget {
-  const _Header(this.text, this.action);
-  final String text;
-  final Widget? action;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
-        child: Row(children: [
-          Expanded(child: Text(text, style: Theme.of(context).textTheme.titleMedium)),
-          ?action,
-        ]),
-      );
-}
-
 class _Empty extends StatelessWidget {
   const _Empty(this.text);
   final String text;
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        child: Text(text,
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
       );
 }
