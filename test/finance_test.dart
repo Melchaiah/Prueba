@@ -87,6 +87,32 @@ void main() {
       expect(chargesForMonth(ym.add(3), [], [r]), isEmpty);
     });
 
+    test('monto ajustado en un mes puntual', () {
+      final adj = r.withOverride(ym.add(1), 80000);
+      expect(chargesForMonth(ym, [], [adj]).single.amount, 50000);
+      final c = chargesForMonth(ym.add(1), [], [adj]).single;
+      expect((c.amount, c.adjusted), (80000, true));
+      expect(chargesForMonth(ym.add(2), [], [adj]).single.adjusted, isFalse);
+      // El saldo acumulado usa el monto de cada mes.
+      expect(chargesUpTo(ym.add(2), [], [adj]).fold<int>(0, (a, c) => a + c.amount), 180000);
+      // Volver al habitual (o poner el mismo monto) quita el ajuste.
+      expect(adj.withOverride(ym.add(1), null).overrides, isEmpty);
+      expect(adj.withOverride(ym.add(1), 50000).overrides, isEmpty);
+    });
+
+    test('mes marcado sin pago no genera cargo', () {
+      final skip = r.withOverride(ym.add(1), 0);
+      expect(chargesForMonth(ym.add(1), [], [skip]), isEmpty);
+      expect(chargesUpTo(ym.add(2), [], [skip]).length, 2);
+    });
+
+    test('los ajustes sobreviven a guardar y leer', () {
+      final adj = r.withOverride(ym.add(1), 80000).withOverride(ym, 0);
+      final back = RecurringExpense.fromMap('r', adj.toMap());
+      expect(back.overrides, {ym.add(1): 80000, ym: 0});
+      expect(RecurringExpense.fromMap('r', r.toMap()..remove('overrides')).overrides, isEmpty);
+    });
+
     test('chargesUpTo genera un cargo por mes', () {
       expect(chargesUpTo(ym.add(10), [], [r]).length, 3);
       expect(chargesUpTo(ym.add(1), [], [r]).length, 2);

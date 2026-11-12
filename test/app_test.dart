@@ -17,6 +17,17 @@ void main() {
     expect(find.text('Supermercado semanal'), findsOneWidget);
     expect(find.text('Regalo sorpresa'), findsNothing);
 
+    // Ajustar un gasto fijo solo para este mes.
+    await tester.tap(find.text('Alquiler'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Ajustar solo'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).last, '700000');
+    await tester.tap(find.text('Guardar'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('700.000'), findsWidgets);
+    expect(find.textContaining('ajustado'), findsOneWidget);
+
     // Cargar un gasto nuevo.
     await tester.tap(find.text('Gasto'));
     await tester.pumpAndSettle();

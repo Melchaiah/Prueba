@@ -28,6 +28,11 @@ class MovementsTab extends StatelessWidget {
         .toList()
       ..sort((a, b) => b.date.compareTo(a.date));
 
+    // Gastos fijos marcados como "este mes no se paga".
+    final skipped = s.recurring
+        .where((r) => r.activeIn(s.month) && r.amountIn(s.month) <= 0)
+        .toList();
+
     // Gastos agrupados por día, del más reciente al más viejo.
     final byDay = <int, List<Charge>>{};
     for (final c in charges) {
@@ -42,7 +47,7 @@ class MovementsTab extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.only(bottom: 96),
               children: [
-                if (charges.isEmpty && incomes.isEmpty && settlements.isEmpty)
+                if (charges.isEmpty && incomes.isEmpty && settlements.isEmpty && skipped.isEmpty)
                   Padding(
                     padding: const EdgeInsets.all(40),
                     child: Column(children: [
@@ -59,6 +64,18 @@ class MovementsTab extends StatelessWidget {
                   SectionHeader('$day de ${monthLabel(s.month).split(' ').first.toLowerCase()}',
                       dense: true),
                   for (final c in byDay[day]!) _ChargeTile(c),
+                ],
+                if (skipped.isNotEmpty) ...[
+                  const SectionHeader('Fijos que este mes no se pagan', dense: true),
+                  for (final r in skipped)
+                    ListTile(
+                      leading: CategoryAvatar(r.category, personal: !r.isShared),
+                      title: Text(r.description, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: Text(
+                          'Habitual: ${formatMoney(r.amount, r.currency, compact: true)}'),
+                      trailing: const Icon(Icons.money_off),
+                      onTap: () => _recurringOptions(context, r, s.month),
+                    ),
                 ],
                 if (incomes.isNotEmpty) ...[
                   const SectionHeader('Ingresos'),
@@ -113,7 +130,7 @@ class _ChargeTile extends StatelessWidget {
       if (!e.isShared) 'Personal',
       if (!e.isShared && e.paidBy == s.me && !isPublic(e, s.household?.member(s.me))) 'Privado',
       if (c.totalInstallments > 1) 'Cuota ${c.installment}/${c.totalInstallments}',
-      if (c.recurring) 'Fijo mensual',
+      if (c.recurring) c.adjusted ? 'Fijo mensual · ajustado' : 'Fijo mensual',
     ];
     final myShare = e.isShared ? shareAmounts(c.amount, e.split)[s.me] : null;
     return ListTile(
@@ -124,7 +141,45 @@ class _ChargeTile extends StatelessWidget {
         formatMoney(c.amount, c.currency),
         detail: myShare == null ? null : 'te toca ${formatMoney(myShare, c.currency, compact: true)}',
       ),
-      onTap: () => openExpenseForm(context, existing: e),
+      onTap: () => e is RecurringExpense
+          ? _recurringOptions(context, e, c.month)
+          : openExpenseForm(context, existing: e),
     );
   }
+}
+
+/// Opciones al tocar un gasto fijo: ajustar solo este mes o editarlo entero.
+void _recurringOptions(BuildContext context, RecurringExpense r, YearMonth month) {
+  final s = HouseholdScope.of(context);
+  if (!r.isShared && r.paidBy != s.me) {
+    openExpenseForm(context, existing: r); // muestra el aviso de solo lectura
+    return;
+  }
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheet) => SafeArea(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        ListTile(
+          leading: const Icon(Icons.tune),
+          title: Text('Ajustar solo ${monthLabel(month)}'),
+          subtitle: const Text('Si este mes el monto es distinto o no se paga'),
+          onTap: () {
+            Navigator.pop(sheet);
+            showMonthAdjustDialog(context, r, month);
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.edit_outlined),
+          title: const Text('Editar el gasto fijo'),
+          subtitle: const Text('Cambia todos los meses'),
+          onTap: () {
+            Navigator.pop(sheet);
+            openExpenseForm(context, existing: r);
+          },
+        ),
+        const SizedBox(height: 8),
+      ]),
+    ),
+  );
 }

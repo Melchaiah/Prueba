@@ -188,3 +188,68 @@ Future<void> showBudgetDialog(BuildContext context, {Budget? existing}) {
     )),
   );
 }
+
+/// Ajusta el monto de un gasto fijo solo para [month] (por ejemplo, la luz
+/// que varía). Devuelve true si se guardó algún cambio.
+Future<bool> showMonthAdjustDialog(
+    BuildContext context, RecurringExpense r, YearMonth month) async {
+  final s = HouseholdScope.of(context);
+  final form = GlobalKey<FormState>();
+  final current = r.amountIn(month);
+  final hasOverride = r.overrides.containsKey(month);
+  final amount = TextEditingController(text: current > 0 ? moneyToInput(current) : '');
+
+  Future<void> save(BuildContext ctx, int? value) async {
+    Navigator.pop(ctx, true);
+    await guard(context, s.repo.saveRecurring(s.hid, r.withOverride(month, value)));
+  }
+
+  final changed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text('${r.description} · ${monthLabel(month)}'),
+      content: Form(
+        key: form,
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text(
+              'Monto habitual: ${formatMoney(r.amount, r.currency, compact: true)}. '
+              'El cambio vale solo para ${monthLabel(month)}.',
+            ),
+            const SizedBox(height: 16),
+            AmountField(
+              controller: amount,
+              currency: r.currency,
+              label: 'Monto de ${monthLabel(month)}',
+              autofocus: true,
+            ),
+            const SizedBox(height: 8),
+            if (current > 0)
+              TextButton.icon(
+                icon: const Icon(Icons.money_off),
+                label: const Text('Este mes no se paga'),
+                onPressed: () => save(ctx, 0),
+              ),
+            if (hasOverride)
+              TextButton.icon(
+                icon: const Icon(Icons.undo),
+                label: const Text('Volver al monto habitual'),
+                onPressed: () => save(ctx, null),
+              ),
+          ]),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+        FilledButton(
+          onPressed: () {
+            if (!form.currentState!.validate()) return;
+            save(ctx, parseMoney(amount.text)!);
+          },
+          child: const Text('Guardar'),
+        ),
+      ],
+    ),
+  );
+  return changed ?? false;
+}

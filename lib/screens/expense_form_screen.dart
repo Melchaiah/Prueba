@@ -5,6 +5,7 @@ import '../logic/finance.dart';
 import '../logic/money.dart';
 import '../models/models.dart';
 import '../widgets/common.dart';
+import 'dialogs.dart';
 
 /// Abre el formulario para crear un gasto o editar uno existente
 /// ([Expense] o [RecurringExpense]).
@@ -132,6 +133,7 @@ class _ExpenseFormScreenState extends State<ExpenseFormScreen> {
           start: r?.start ?? s.month,
           end: r?.end,
           visibleToPartner: _visible,
+          overrides: r?.overrides ?? const {},
         ),
       );
     } else {
@@ -186,23 +188,7 @@ class _ExpenseFormScreenState extends State<ExpenseFormScreen> {
     final r = _recurring!;
     final end = s.month.add(-1);
     if (end < r.start) return _delete();
-    await s.repo.saveRecurring(
-      s.hid,
-      RecurringExpense(
-        id: r.id,
-        description: r.description,
-        category: r.category,
-        amount: r.amount,
-        currency: r.currency,
-        paidBy: r.paidBy,
-        isShared: r.isShared,
-        split: r.split,
-        dayOfMonth: r.dayOfMonth,
-        start: r.start,
-        end: end,
-        visibleToPartner: r.visibleToPartner,
-      ),
-    );
+    await s.repo.saveRecurring(s.hid, r.copyWith(end: () => end));
     if (mounted) Navigator.pop(context);
   }
 
@@ -297,8 +283,25 @@ class _ExpenseFormScreenState extends State<ExpenseFormScreen> {
             const SizedBox(height: 12),
             ..._frequencyFields(),
             if (!_shared) ..._privacyFields(partner),
-            if (_recurring != null && _recurring!.end == null) ...[
+            if (_recurring != null && _recurring!.activeIn(s.month)) ...[
               const SizedBox(height: 24),
+              FilledButton.tonalIcon(
+                icon: const Icon(Icons.tune),
+                label: Text('Ajustar solo ${monthLabel(s.month)}'),
+                onPressed: () async {
+                  final changed = await showMonthAdjustDialog(context, _recurring!, s.month);
+                  if (changed && context.mounted) Navigator.pop(context);
+                },
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Para meses en los que el monto es distinto (por ejemplo, la luz). '
+                'Los cambios de arriba valen para todos los meses.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+            if (_recurring != null && _recurring!.end == null) ...[
+              const SizedBox(height: 12),
               OutlinedButton.icon(
                 icon: const Icon(Icons.stop_circle_outlined),
                 label: Text('Dejar de repetir desde ${monthLabel(s.month)}'),

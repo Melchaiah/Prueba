@@ -18,6 +18,8 @@ y ven todo sincronizado en tiempo real.
 - **Saldo "quién le debe a quién"**, separado por moneda, y registro de pagos para saldar.
 - **Ingresos** de cada uno por mes, y cuánto **le queda** a cada uno después de sus gastos.
 - **Gastos fijos mensuales** (alquiler, servicios, suscripciones) que se repiten solos.
+  El monto se puede **ajustar para un mes puntual** (la luz que varía) o marcar
+  que ese mes no se paga, sin tocar los demás meses.
 - **Compras en cuotas**: el total se reparte en los meses que corresponden.
   El saldo solo cuenta las cuotas ya vencidas.
 - **Monedas configurables por hogar**: una principal y las adicionales que usen
@@ -108,7 +110,6 @@ Hoy todo es gratis, pero la base ya está:
 ## Ideas para próximas versiones
 
 - Notificaciones cuando la pareja carga un gasto o se pasa un presupuesto.
-- Ajustar el monto de un gasto fijo en un mes puntual (ej. la luz que varía).
 - Cotización del dólar para ver totales unificados.
 - Metas de ahorro en común.
 - Evolución mes a mes y exportar a Excel.

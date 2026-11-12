@@ -51,13 +51,20 @@ class PlanningTab extends StatelessWidget {
             subtitle: Text('Día ${r.dayOfMonth} · Paga ${s.nameOf(r.paidBy)}'
                 '${r.isShared ? '' : ' · Personal'}'
                 '${r.end != null ? ' · hasta ${monthLabel(r.end!)}' : ''}'),
-            trailing: TrailingAmount(formatMoney(r.amount, r.currency)),
+            trailing: TrailingAmount(
+              formatMoney(r.amount, r.currency),
+              detail: r.overrides.containsKey(s.month) && r.activeIn(s.month)
+                  ? r.amountIn(s.month) <= 0
+                      ? 'no se paga en ${monthLabel(s.month).split(' ').first.toLowerCase()}'
+                      : '${formatMoney(r.amountIn(s.month), r.currency, compact: true)} en ${monthLabel(s.month).split(' ').first.toLowerCase()}'
+                  : null,
+            ),
             onTap: () => openExpenseForm(context, existing: r),
           ),
         if (active.isNotEmpty) _totals(context, {
           for (final c in Currency.values)
             c: active.where((r) => r.currency == c).fold(0, (a, r) => a + r.amount),
-        }, 'Total fijo por mes'),
+        }, 'Total habitual por mes'),
         if (ended.isNotEmpty)
           ExpansionTile(
             title: Text('Finalizados (${ended.length})'),

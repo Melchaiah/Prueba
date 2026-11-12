@@ -12,6 +12,9 @@ class Charge {
   final int totalInstallments;
   final bool recurring;
 
+  /// Gasto fijo con el monto ajustado para este mes.
+  final bool adjusted;
+
   const Charge({
     required this.source,
     required this.month,
@@ -19,6 +22,7 @@ class Charge {
     this.installment = 1,
     this.totalInstallments = 1,
     this.recurring = false,
+    this.adjusted = false,
   });
 
   Currency get currency => source.currency;
@@ -48,6 +52,21 @@ Charge? chargeOfExpenseIn(Expense e, YearMonth month) {
   );
 }
 
+/// Cargo de un gasto fijo en [month]: usa el monto ajustado si lo hay. No
+/// hay cargo si el gasto no está vigente o si ese mes se marcó sin pago.
+Charge? chargeOfRecurringIn(RecurringExpense r, YearMonth month) {
+  if (!r.activeIn(month)) return null;
+  final amount = r.amountIn(month);
+  if (amount <= 0) return null;
+  return Charge(
+    source: r,
+    month: month,
+    amount: amount,
+    recurring: true,
+    adjusted: r.overrides.containsKey(month),
+  );
+}
+
 /// Todos los cargos (gastos, cuotas y recurrentes) de un mes.
 List<Charge> chargesForMonth(
   YearMonth month,
@@ -60,9 +79,8 @@ List<Charge> chargesForMonth(
     if (c != null) out.add(c);
   }
   for (final r in recurring) {
-    if (r.activeIn(month)) {
-      out.add(Charge(source: r, month: month, amount: r.amount, recurring: true));
-    }
+    final c = chargeOfRecurringIn(r, month);
+    if (c != null) out.add(c);
   }
   return out;
 }
@@ -91,7 +109,8 @@ List<Charge> chargesUpTo(
   for (final r in recurring) {
     final last = (r.end != null && r.end! < upTo) ? r.end! : upTo;
     for (var m = r.start; m <= last; m = m.add(1)) {
-      out.add(Charge(source: r, month: m, amount: r.amount, recurring: true));
+      final c = chargeOfRecurringIn(r, m);
+      if (c != null) out.add(c);
     }
   }
   return out;

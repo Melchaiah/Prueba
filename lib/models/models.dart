@@ -361,6 +361,10 @@ class RecurringExpense implements ExpenseBase {
   @override
   final bool visibleToPartner;
 
+  /// Ajustes para meses puntuales: mes -> monto en centavos. Un monto 0
+  /// significa que ese mes no se paga. Los meses sin ajuste usan [amount].
+  final Map<YearMonth, int> overrides;
+
   const RecurringExpense({
     required this.id,
     required this.description,
@@ -374,9 +378,41 @@ class RecurringExpense implements ExpenseBase {
     required this.start,
     this.end,
     this.visibleToPartner = true,
+    this.overrides = const {},
   });
 
   bool activeIn(YearMonth m) => m >= start && (end == null || m <= end!);
+
+  /// Monto que corresponde a [m]: el ajustado si lo hay, o el habitual.
+  int amountIn(YearMonth m) => overrides[m] ?? amount;
+
+  /// Copia con el monto de [m] ajustado; con [value] null vuelve al habitual.
+  RecurringExpense withOverride(YearMonth m, int? value) {
+    final next = Map.of(overrides);
+    if (value == null || value == amount) {
+      next.remove(m);
+    } else {
+      next[m] = value;
+    }
+    return copyWith(overrides: next);
+  }
+
+  RecurringExpense copyWith({YearMonth? Function()? end, Map<YearMonth, int>? overrides}) =>
+      RecurringExpense(
+        id: id,
+        description: description,
+        category: category,
+        amount: amount,
+        currency: currency,
+        paidBy: paidBy,
+        isShared: isShared,
+        split: split,
+        dayOfMonth: dayOfMonth,
+        start: start,
+        end: end != null ? end() : this.end,
+        visibleToPartner: visibleToPartner,
+        overrides: overrides ?? this.overrides,
+      );
 
   Map<String, dynamic> toMap() => {
         'description': description,
@@ -390,6 +426,7 @@ class RecurringExpense implements ExpenseBase {
         'start': start.key,
         'end': end?.key,
         'visibleToPartner': visibleToPartner,
+        'overrides': {for (final e in overrides.entries) e.key.key: e.value},
       };
 
   factory RecurringExpense.fromMap(String id, Map<String, dynamic> m) =>
@@ -406,6 +443,10 @@ class RecurringExpense implements ExpenseBase {
         start: YearMonth.parse(m['start'] as String),
         end: m['end'] == null ? null : YearMonth.parse(m['end'] as String),
         visibleToPartner: m['visibleToPartner'] as bool? ?? true,
+        overrides: {
+          for (final e in (m['overrides'] as Map? ?? {}).entries)
+            YearMonth.parse(e.key as String): (e.value as num).toInt(),
+        },
       );
 }
 
