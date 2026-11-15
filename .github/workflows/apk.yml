@@ -37,21 +37,32 @@ jobs:
       - run: flutter analyze
       - run: flutter test
 
-      - name: Clave de firma (secreto ANDROID_KEYSTORE_BASE64)
+      - name: Clave de firma (secretos ANDROID_KEYSTORE_BASE64 y ANDROID_KEYSTORE_PASSWORD)
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
             echo "::warning::Falta el secreto ANDROID_KEYSTORE_BASE64. El APK se firma con una clave temporal y para actualizarlo habrá que desinstalar la versión anterior."
             exit 0
           fi
+          if [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::Falta el secreto ANDROID_KEYSTORE_PASSWORD con la contraseña de la clave de firma."
+            exit 1
+          fi
           echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
-          cat > android/key.properties <<PROPS
-          storeFile=release.keystore
-          storePassword=gastospareja
-          keyAlias=gastos
-          keyPassword=gastospareja
-          PROPS
+          # Se escribe sin heredoc para no expandir caracteres especiales.
+          {
+            echo "storeFile=release.keystore"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=gastos"
+            echo "keyPassword=$KEYSTORE_PASSWORD"
+          } > android/key.properties
+          # Falla acá, con un mensaje claro, si la contraseña no abre la clave.
+          if ! keytool -list -keystore android/app/release.keystore -storepass "$KEYSTORE_PASSWORD" >/dev/null 2>&1; then
+            echo "::error::La contraseña de ANDROID_KEYSTORE_PASSWORD no abre la clave de ANDROID_KEYSTORE_BASE64. Revisá que los dos secretos estén actualizados."
+            exit 1
+          fi
 
       - name: Compilar APK
         run: flutter build apk --release --build-number=${{ github.run_number }} --build-name=1.0.${{ github.run_number }}
